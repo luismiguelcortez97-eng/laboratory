@@ -147,16 +147,16 @@
 
           <td class="text-nowrap">
 
-            <!-- Imprimir cotización individual -->
-            {% if o.pdf_path %}
-            <a href="/pdf/{{ o.id }}"
-               target="_blank"
-               class="btn btn-sm btn-primary py-1 mb-1"
-               title="Abrir PDF de esta operación">
-              <i class="bi bi-printer"></i>
-              Imprimir cotización
-            </a>
-            {% endif %}
+
+<!-- Imprimir cotización individual -->
+<a href="/pdf/{{ o.id }}"
+   target="_blank"
+   class="btn btn-sm btn-primary py-1 mb-1"
+   title="Abrir PDF de esta operación">
+  <i class="bi bi-printer"></i>
+  Imprimir cotización
+</a>
+
 
             <!-- Registrar pago -->
             {% if o.estado_pago != 'PAGADO' and o.estado_pago != 'CANCELADO' %}
