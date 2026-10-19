@@ -1,143 +1,428 @@
+
 {% extends "base.html" %}
 {% block title %}Cotización — LC Lab{% endblock %}
+
 {% block content %}
-<h4 class="mb-3" style="color:#1a5276">Cotización / Venta de Estudios</h4>
+<h4 class="mb-3" style="color:#1a5276">
+  Cotización / Venta de Estudios
+</h4>
+
 <form method="post" action="/cotizacion/guardar" id="formCot">
+
+  <!-- DATOS GENERALES -->
   <div class="card card-lc p-3 mb-3">
     <div class="row g-2">
+
       <div class="col-md-5">
         <label class="form-label small">Paciente *</label>
-        <select name="paciente_id" class="form-select form-select-sm" required>
+        <select name="paciente_id"
+                class="form-select form-select-sm"
+                required>
           <option value="">— Seleccionar —</option>
           {% for p in pacientes %}
-          <option value="{{ p.id }}">{{ p.folio }} — {{ p.nombre_completo }}</option>
+          <option value="{{ p.id }}">
+            {{ p.folio }} — {{ p.nombre_completo }}
+          </option>
           {% endfor %}
         </select>
       </div>
+
       <div class="col-md-3">
         <label class="form-label small">Sucursal *</label>
-        <select name="sucursal_id" id="sucursal" class="form-select form-select-sm" required onchange="cargarEstudios()">
-          {% for s in sucursales %}<option value="{{ s.id }}">{{ s.nombre }}</option>{% endfor %}
+        <select name="sucursal_id"
+                id="sucursal"
+                class="form-select form-select-sm"
+                required>
+          {% for s in sucursales %}
+          <option value="{{ s.id }}">{{ s.nombre }}</option>
+          {% endfor %}
         </select>
       </div>
+
       <div class="col-md-4">
         <label class="form-label small">Empleado *</label>
-        <select name="empleado_id" class="form-select form-select-sm" required>
-          {% for e in empleados %}<option value="{{ e.id }}">{{ e.nombre_completo }}</option>{% endfor %}
+        <select name="empleado_id"
+                class="form-select form-select-sm"
+                required>
+          {% for e in empleados %}
+          <option value="{{ e.id }}">
+            {{ e.nombre_completo }}
+          </option>
+          {% endfor %}
         </select>
       </div>
+
     </div>
   </div>
 
+  <!-- BUSCADOR DE ESTUDIOS -->
   <div class="card card-lc p-3 mb-3">
+
     <div class="row g-2 align-items-end">
-     
-<div class="col-md-6">
-  <label class="form-label small">Buscar estudio por clave o nombre</label>
-  <input
-    type="search"
-    id="buscarEstudio"
-    class="form-control form-control-sm mb-2"
-    placeholder="Escribe una clave o nombre..."
-    autocomplete="off"
-  >
-  <select id="estudioSel" class="form-select form-select-sm">
-    <option value="">Escribe para buscar un estudio</option>
-  </select>
-  <small class="text-muted">Busca por clave o por cualquier palabra del nombre.</small>
-</div>
+
+      <div class="col-md-6">
+        <label for="buscarEstudio" class="form-label small">
+          Buscar estudio por clave o nombre
+        </label>
+
+        <input
+          type="search"
+          id="buscarEstudio"
+          class="form-control form-control-sm mb-2"
+          placeholder="Escribe: glucosa, biometría, etc."
+          autocomplete="off"
+        >
+
+        <select id="estudioSel"
+                class="form-select form-select-sm">
+          <option value="">Escribe para buscar un estudio</option>
+        </select>
+
+        <small class="text-muted">
+          Los resultados aparecen mientras escribes.
+        </small>
+      </div>
 
       <div class="col-md-2">
-        <label class="form-label small">Cantidad</label>
-        <input type="number" id="cant" class="form-control form-control-sm" value="1" min="1" step="1">
+        <label for="cant" class="form-label small">Cantidad</label>
+        <input type="number"
+               id="cant"
+               class="form-control form-control-sm"
+               value="1"
+               min="1"
+               step="1">
       </div>
+
       <div class="col-md-2">
-        <button type="button" class="btn btn-lc btn-sm w-100" onclick="agregarEstudio()"><i class="bi bi-plus"></i> Agregar</button>
+        <button type="button"
+                id="btnAgregar"
+                class="btn btn-lc btn-sm w-100">
+          <i class="bi bi-plus"></i> Agregar
+        </button>
       </div>
+
     </div>
+
+    <!-- PARTIDAS -->
     <div class="table-responsive mt-3">
-      <table class="table table-sm table-lc" id="tablaPartidas">
-        <thead><tr><th>Clave</th><th>Estudio</th><th>Cant.</th><th>P. Unit.</th><th>Importe</th><th></th></tr></thead>
+      <table class="table table-sm table-lc"
+             id="tablaPartidas">
+
+        <thead>
+          <tr>
+            <th>Clave</th>
+            <th>Estudio</th>
+            <th>Cant.</th>
+            <th>P. Unit.</th>
+            <th>Importe</th>
+            <th>Acción</th>
+          </tr>
+        </thead>
+
         <tbody></tbody>
+
       </table>
     </div>
-    <div class="text-end fw-bold fs-5" style="color:#1a5276">TOTAL: <span id="totalLabel">$0.00</span></div>
+
+    <div class="text-end fw-bold fs-5"
+         style="color:#1a5276">
+      TOTAL:
+      <span id="totalLabel">$0.00</span>
+    </div>
+
   </div>
 
+  <!-- PAGO Y GUARDADO -->
   <div class="card card-lc p-3 mb-3">
     <div class="row g-2">
+
       <div class="col-md-3">
         <label class="form-label small">Método de pago</label>
-        <select name="metodo_pago" class="form-select form-select-sm">
-          {% for m in metodos %}<option value="{{ m }}">{{ m }}</option>{% endfor %}
+        <select name="metodo_pago"
+                class="form-select form-select-sm">
+          {% for m in metodos %}
+          <option value="{{ m }}">{{ m }}</option>
+          {% endfor %}
         </select>
       </div>
+
       <div class="col-md-3">
         <label class="form-label small">Monto recibido</label>
-        <input type="number" name="monto_recibido" class="form-control form-control-sm" value="0" step="0.01" min="0">
+        <input type="number"
+               name="monto_recibido"
+               class="form-control form-control-sm"
+               value="0"
+               step="0.01"
+               min="0">
       </div>
+
       <div class="col-md-3">
         <label class="form-label small">Observaciones</label>
-        <input type="text" name="observaciones" class="form-control form-control-sm">
+        <input type="text"
+               name="observaciones"
+               class="form-control form-control-sm">
       </div>
+
       <div class="col-md-3 d-flex align-items-end gap-2">
-        <button type="submit" name="estado" value="PENDIENTE" class="btn btn-warning btn-sm">Guardar PENDIENTE</button>
-        <button type="submit" name="estado" value="PAGADO" class="btn btn-success btn-sm">Guardar PAGADO</button>
+        <button type="submit"
+                name="estado"
+                value="PENDIENTE"
+                class="btn btn-warning btn-sm">
+          Guardar PENDIENTE
+        </button>
+
+        <button type="submit"
+                name="estado"
+                value="PAGADO"
+                class="btn btn-success btn-sm">
+          Guardar PAGADO
+        </button>
       </div>
+
     </div>
   </div>
+
 </form>
 {% endblock %}
+
+
 {% block extra_js %}
 <script>
 let estudiosCache = [];
 let partidas = [];
 
-async function cargarEstudios() {
-  const sid = document.getElementById('sucursal').value;
-  const sel = document.getElementById('estudioSel');
-  sel.innerHTML = '<option>Cargando...</option>';
-  const r = await fetch('/api/estudios/' + sid);
-  estudiosCache = await r.json();
-  sel.innerHTML = estudiosCache.map(e =>
-    `<option value="${e.id}" data-precio="${e.precio_venta}" data-clave="${e.clave}" data-nombre="${e.nombre}">
-      ${e.clave} — ${e.nombre} ($${e.precio_venta.toFixed(2)})
-    </option>`
-  ).join('') || '<option value="">Sin estudios</option>';
+function normalizar(texto) {
+  return String(texto ?? '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim();
 }
 
+
+// CARGAR ESTUDIOS DE LA SUCURSAL
+async function cargarEstudios() {
+  const sucursal = document.getElementById('sucursal');
+  const buscador = document.getElementById('buscarEstudio');
+  const sel = document.getElementById('estudioSel');
+
+  estudiosCache = [];
+  buscador.value = '';
+  sel.innerHTML =
+    '<option value="">Cargando estudios...</option>';
+
+  if (!sucursal.value) {
+    sel.innerHTML =
+      '<option value="">Selecciona una sucursal</option>';
+    return;
+  }
+
+  try {
+    const respuesta = await fetch(
+      '/api/estudios/' + encodeURIComponent(sucursal.value)
+    );
+
+    if (!respuesta.ok) {
+      throw new Error('Error HTTP ' + respuesta.status);
+    }
+
+    const datos = await respuesta.json();
+
+    if (!Array.isArray(datos)) {
+      throw new Error('La respuesta del catálogo no es válida');
+    }
+
+    estudiosCache = datos;
+    filtrarEstudios();
+
+  } catch (error) {
+    console.error('Error al cargar estudios:', error);
+    sel.innerHTML =
+      '<option value="">Error al cargar estudios</option>';
+  }
+}
+
+
+// BUSCAR MIENTRAS SE ESCRIBE
+function filtrarEstudios() {
+  const texto = normalizar(
+    document.getElementById('buscarEstudio').value
+  );
+
+  const sel = document.getElementById('estudioSel');
+  sel.replaceChildren();
+
+  const inicial = document.createElement('option');
+  inicial.value = '';
+  inicial.textContent = texto
+    ? 'Selecciona un estudio encontrado'
+    : 'Escribe para buscar un estudio';
+
+  sel.appendChild(inicial);
+
+  if (!texto) return;
+
+  const resultados = estudiosCache.filter(e =>
+    normalizar(e.clave).includes(texto) ||
+    normalizar(e.nombre).includes(texto)
+  );
+
+  if (resultados.length === 0) {
+    inicial.textContent = 'No se encontraron estudios';
+    return;
+  }
+
+  resultados.forEach(e => {
+    const opcion = document.createElement('option');
+
+    opcion.value = e.id;
+    opcion.dataset.precio =
+      Number(e.precio_venta) || 0;
+    opcion.dataset.clave = e.clave ?? '';
+    opcion.dataset.nombre = e.nombre ?? '';
+
+    opcion.textContent =
+      `${e.clave} — ${e.nombre} ($${
+        (Number(e.precio_venta) || 0).toFixed(2)
+      })`;
+
+    sel.appendChild(opcion);
+  });
+
+  // Seleccionar automáticamente si existe una sola coincidencia
+  if (resultados.length === 1) {
+    sel.selectedIndex = 1;
+  }
+}
+
+
+// AGREGAR ESTUDIO A LA COTIZACIÓN
 function agregarEstudio() {
   const sel = document.getElementById('estudioSel');
-  const opt = sel.options[sel.selectedIndex];
-  if (!opt || !opt.value) return;
-  const cant = parseFloat(document.getElementById('cant').value) || 1;
-  const precio = parseFloat(opt.dataset.precio) || 0;
+  const opcion = sel.options[sel.selectedIndex];
+
+  if (!opcion || !opcion.value) {
+    alert('Escribe y selecciona un estudio.');
+    return;
+  }
+
+  const cantidad = Number(
+    document.getElementById('cant').value
+  );
+
+  if (!Number.isInteger(cantidad) || cantidad < 1) {
+    alert('Ingresa una cantidad entera mayor que cero.');
+    return;
+  }
+
+  const precio = Number(opcion.dataset.precio) || 0;
+
   partidas.push({
-    id: opt.value, clave: opt.dataset.clave, nombre: opt.dataset.nombre,
-    cant, precio, importe: +(cant * precio).toFixed(2)
+    id: opcion.value,
+    clave: opcion.dataset.clave,
+    nombre: opcion.dataset.nombre,
+    cant: cantidad,
+    precio: precio,
+    importe: Number((cantidad * precio).toFixed(2))
   });
+
+  renderPartidas();
+
+  document.getElementById('buscarEstudio').value = '';
+  document.getElementById('cant').value = 1;
+
+  filtrarEstudios();
+  document.getElementById('buscarEstudio').focus();
+}
+
+
+// QUITAR ESTUDIO
+function quitar(i) {
+  partidas.splice(i, 1);
   renderPartidas();
 }
 
-function quitar(i) { partidas.splice(i, 1); renderPartidas(); }
 
+// DIBUJAR TABLA Y CALCULAR TOTAL
 function renderPartidas() {
-  const tbody = document.querySelector('#tablaPartidas tbody');
+  const tbody = document.querySelector(
+    '#tablaPartidas tbody'
+  );
+
   let total = 0;
-  tbody.innerHTML = partidas.map((p, i) => {
+  tbody.replaceChildren();
+
+  partidas.forEach((p, i) => {
     total += p.importe;
-    return `<tr>
-      <td>${p.clave}<input type="hidden" name="estudio_id" value="${p.id}"></td>
-      <td>${p.nombre}</td>
-      <td>${p.cant}<input type="hidden" name="cantidad" value="${p.cant}"></td>
-      <td>$${p.precio.toFixed(2)}<input type="hidden" name="precio" value="${p.precio}"></td>
-      <td>$${p.importe.toFixed(2)}</td>
-      <td><button type="button" class="btn btn-sm btn-outline-danger py-0" onclick="quitar(${i})">✕</button></td>
-    </tr>`;
-  }).join('');
-  document.getElementById('totalLabel').textContent = '$' + total.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+
+    const fila = document.createElement('tr');
+
+    function crearCelda(texto) {
+      const td = document.createElement('td');
+      td.textContent = texto;
+      fila.appendChild(td);
+      return td;
+    }
+
+    function agregarOculto(celda, nombre, valor) {
+      const input = document.createElement('input');
+      input.type = 'hidden';
+      input.name = nombre;
+      input.value = valor;
+      celda.appendChild(input);
+    }
+
+    const tdClave = crearCelda(p.clave);
+    agregarOculto(tdClave, 'estudio_id', p.id);
+
+    crearCelda(p.nombre);
+
+    const tdCantidad = crearCelda(String(p.cant));
+    agregarOculto(tdCantidad, 'cantidad', p.cant);
+
+    const tdPrecio = crearCelda(
+      '$' + p.precio.toFixed(2)
+    );
+    agregarOculto(tdPrecio, 'precio', p.precio);
+
+    crearCelda('$' + p.importe.toFixed(2));
+
+    const tdAccion = document.createElement('td');
+    const boton = document.createElement('button');
+
+    boton.type = 'button';
+    boton.className =
+      'btn btn-sm btn-outline-danger py-0';
+    boton.textContent = '✕';
+    boton.title = 'Quitar estudio';
+
+    boton.addEventListener('click', () => quitar(i));
+
+    tdAccion.appendChild(boton);
+    fila.appendChild(tdAccion);
+    tbody.appendChild(fila);
+  });
+
+  document.getElementById('totalLabel').textContent =
+    '$' + total.toLocaleString('es-MX', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2
+    });
 }
 
-document.addEventListener('DOMContentLoaded', cargarEstudios);
+
+// INICIALIZAR EVENTOS
+document.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('buscarEstudio')
+    .addEventListener('input', filtrarEstudios);
+
+  document.getElementById('btnAgregar')
+    .addEventListener('click', agregarEstudio);
+
+  document.getElementById('sucursal')
+    .addEventListener('change', cargarEstudios);
+
+  cargarEstudios();
+});
 </script>
 {% endblock %}
