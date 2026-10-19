@@ -23,10 +23,12 @@ BACKUP_DIR = DATA_DIR / "backups"
 
 DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
 
-# Crear directorios únicamente para el funcionamiento local.
+
+# Crear las carpetas necesarias para el funcionamiento local y en Render.
+DOCS_DIR.mkdir(parents=True, exist_ok=True)
+
 if not DATABASE_URL:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
-    DOCS_DIR.mkdir(parents=True, exist_ok=True)
     BACKUP_DIR.mkdir(parents=True, exist_ok=True)
 
 
