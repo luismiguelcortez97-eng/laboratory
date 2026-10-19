@@ -504,12 +504,27 @@ async def config_codigo(request: Request, sucursal_id: int = Form(...), codigo: 
     flash(request, "Codigo actualizado")
     return RedirectResponse("/config", status_code=303)
 
+
 @app.get("/pdf/{venta_id}")
 async def descargar_pdf(venta_id: int, request: Request):
     user = get_user(request)
+
     if not user:
         return RedirectResponse("/login", status_code=303)
-    venta = db.fetchone("SELECT pdf_path, folio FROM ventas WHERE id=?", (venta_id,))
+
+    venta = db.fetchone(
+        "SELECT pdf_path, folio FROM ventas WHERE id=?",
+        (venta_id,)
+    )
+
     if venta and venta["pdf_path"] and Path(venta["pdf_path"]).exists():
-        return FileResponse(venta["pdf_path"], filename=f"{venta['folio']}.pdf", media_type="application/pdf")
+        return FileResponse(
+            path=venta["pdf_path"],
+            filename=f"{venta['folio']}.pdf",
+            media_type="application/pdf",
+            content_disposition_type="inline"
+        )
+
+    flash(request, "No se encontró el PDF de esta cotización", "danger")
     return RedirectResponse("/diario", status_code=303)
+
