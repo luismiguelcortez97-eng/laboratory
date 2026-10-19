@@ -23,6 +23,27 @@ BASE = Path(__file__).resolve().parent
 
 app = FastAPI(title="LC Lab", version="2.0.0")
 
+@app.get("/health")
+async def health_check():
+    try:
+        resultado = db.fetchone("SELECT 1 AS conexion")
+        if resultado and resultado["conexion"] == 1:
+            return {
+                "status": "ok",
+                "database": "connected"
+            }
+
+        return {
+            "status": "error",
+            "database": "unexpected_result"
+        }
+
+    except Exception:
+        return {
+            "status": "error",
+            "database": "connection_failed"
+        }
+
 app.add_middleware(
     SessionMiddleware,
     secret_key=os.environ.get(
