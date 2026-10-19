@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LC Lab — Iniciar sesión</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <style>
+    body {
+      background: #1c2833; min-height: 100vh;
+      display: flex; align-items: center; justify-content: center;
+      font-family: 'Segoe UI', system-ui, sans-serif;
+    }
+    .login-card {
+      background: #fff; border-radius: 12px; padding: 2rem 2.2rem;
+      width: 100%; max-width: 380px; box-shadow: 0 8px 30px rgba(0,0,0,.3);
+    }
+    .brand { text-align: center; margin-bottom: 1.5rem; }
+    .brand h1 { color: #1a5276; font-weight: 700; font-size: 1.8rem; margin: 0; }
+    .brand small { color: #7f8c8d; }
+    .btn-login { background: #1a5276; border: none; width: 100%; padding: .6rem; }
+    .btn-login:hover { background: #154360; }
+    .version { font-size: .75rem; color: #95a5a6; }
+  </style>
+</head>
+<body>
+  <div class="login-card">
+    <div class="brand">
+      <h1>LC Lab</h1>
+      <small>Laboratorio Clínico</small>
+    </div>
+    {% if error %}
+    <div class="alert alert-danger py-2">{{ error }}</div>
+    {% endif %}
+    <form method="post" action="/login">
+      <div class="mb-3">
+        <label class="form-label">Usuario</label>
+        <input type="text" name="username" class="form-control" required autofocus placeholder="Usuario">
+      </div>
+      <div class="mb-3">
+        <label class="form-label">Contraseña</label>
+        <input type="password" name="password" class="form-control" required placeholder="Contraseña">
+      </div>
+      <button type="submit" class="btn btn-primary btn-login">Entrar</button>
+    </form>
+    <div class="text-center mt-3 version">v 2.0.0-web · LC Lab</div>
+  </div>
+</body>
+</html>

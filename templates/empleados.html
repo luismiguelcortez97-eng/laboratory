@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block title %}Empleados — LC Lab{% endblock %}
+{% block content %}
+<h4 class="mb-3" style="color:#1a5276">Administración de Empleados</h4>
+<div class="card card-lc p-3 mb-3">
+  <form method="post" action="/empleados/guardar" class="row g-2">
+    <input type="hidden" name="empleado_id" id="emp_id" value="">
+    <div class="col-md-5">
+      <label class="form-label small">Nombre completo *</label>
+      <input type="text" name="nombre_completo" id="emp_nombre" class="form-control form-control-sm" required>
+    </div>
+    <div class="col-md-4">
+      <label class="form-label small">Puesto *</label>
+      <select name="puesto" id="emp_puesto" class="form-select form-select-sm">
+        {% for p in puestos %}<option value="{{ p }}">{{ p }}</option>{% endfor %}
+      </select>
+    </div>
+    <div class="col-md-3 d-flex align-items-end">
+      <button type="submit" class="btn btn-lc btn-sm">Guardar</button>
+    </div>
+  </form>
+</div>
+<div class="card card-lc p-3">
+  <table class="table table-sm table-hover table-lc">
+    <thead><tr><th>Nombre</th><th>Puesto</th><th>Fecha alta</th><th>Estado</th><th></th></tr></thead>
+    <tbody>
+      {% for e in empleados %}
+      <tr>
+        <td>{{ e.nombre_completo }}</td>
+        <td>{{ e.puesto }}</td>
+        <td>{{ e.fecha_alta or '—' }}</td>
+        <td>{% if e.activo %}<span class="badge bg-success">Activo</span>{% else %}<span class="badge bg-secondary">Inactivo</span>{% endif %}</td>
+        <td>
+          <button class="btn btn-sm btn-outline-primary py-0" onclick="editarEmp({{ e.id }},'{{ e.nombre_completo }}','{{ e.puesto }}')">Editar</button>
+          <form method="post" action="/empleados/toggle" class="d-inline">
+            <input type="hidden" name="empleado_id" value="{{ e.id }}">
+            <button class="btn btn-sm btn-outline-secondary py-0">{% if e.activo %}Desactivar{% else %}Reactivar{% endif %}</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+<script>
+function editarEmp(id, nombre, puesto) {
+  document.getElementById('emp_id').value = id;
+  document.getElementById('emp_nombre').value = nombre;
+  document.getElementById('emp_puesto').value = puesto;
+}
+</script>
+{% endblock %}

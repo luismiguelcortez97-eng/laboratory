@@ -1,0 +1,131 @@
+{% extends "base.html" %}
+{% block title %}Cotización — LC Lab{% endblock %}
+{% block content %}
+<h4 class="mb-3" style="color:#1a5276">Cotización / Venta de Estudios</h4>
+<form method="post" action="/cotizacion/guardar" id="formCot">
+  <div class="card card-lc p-3 mb-3">
+    <div class="row g-2">
+      <div class="col-md-5">
+        <label class="form-label small">Paciente *</label>
+        <select name="paciente_id" class="form-select form-select-sm" required>
+          <option value="">— Seleccionar —</option>
+          {% for p in pacientes %}
+          <option value="{{ p.id }}">{{ p.folio }} — {{ p.nombre_completo }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-3">
+        <label class="form-label small">Sucursal *</label>
+        <select name="sucursal_id" id="sucursal" class="form-select form-select-sm" required onchange="cargarEstudios()">
+          {% for s in sucursales %}<option value="{{ s.id }}">{{ s.nombre }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="col-md-4">
+        <label class="form-label small">Empleado *</label>
+        <select name="empleado_id" class="form-select form-select-sm" required>
+          {% for e in empleados %}<option value="{{ e.id }}">{{ e.nombre_completo }}</option>{% endfor %}
+        </select>
+      </div>
+    </div>
+  </div>
+
+  <div class="card card-lc p-3 mb-3">
+    <div class="row g-2 align-items-end">
+      <div class="col-md-6">
+        <label class="form-label small">Estudio</label>
+        <select id="estudioSel" class="form-select form-select-sm"></select>
+      </div>
+      <div class="col-md-2">
+        <label class="form-label small">Cantidad</label>
+        <input type="number" id="cant" class="form-control form-control-sm" value="1" min="1" step="1">
+      </div>
+      <div class="col-md-2">
+        <button type="button" class="btn btn-lc btn-sm w-100" onclick="agregarEstudio()"><i class="bi bi-plus"></i> Agregar</button>
+      </div>
+    </div>
+    <div class="table-responsive mt-3">
+      <table class="table table-sm table-lc" id="tablaPartidas">
+        <thead><tr><th>Clave</th><th>Estudio</th><th>Cant.</th><th>P. Unit.</th><th>Importe</th><th></th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <div class="text-end fw-bold fs-5" style="color:#1a5276">TOTAL: <span id="totalLabel">$0.00</span></div>
+  </div>
+
+  <div class="card card-lc p-3 mb-3">
+    <div class="row g-2">
+      <div class="col-md-3">
+        <label class="form-label small">Método de pago</label>
+        <select name="metodo_pago" class="form-select form-select-sm">
+          {% for m in metodos %}<option value="{{ m }}">{{ m }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="col-md-3">
+        <label class="form-label small">Monto recibido</label>
+        <input type="number" name="monto_recibido" class="form-control form-control-sm" value="0" step="0.01" min="0">
+      </div>
+      <div class="col-md-3">
+        <label class="form-label small">Observaciones</label>
+        <input type="text" name="observaciones" class="form-control form-control-sm">
+      </div>
+      <div class="col-md-3 d-flex align-items-end gap-2">
+        <button type="submit" name="estado" value="PENDIENTE" class="btn btn-warning btn-sm">Guardar PENDIENTE</button>
+        <button type="submit" name="estado" value="PAGADO" class="btn btn-success btn-sm">Guardar PAGADO</button>
+      </div>
+    </div>
+  </div>
+</form>
+{% endblock %}
+{% block extra_js %}
+<script>
+let estudiosCache = [];
+let partidas = [];
+
+async function cargarEstudios() {
+  const sid = document.getElementById('sucursal').value;
+  const sel = document.getElementById('estudioSel');
+  sel.innerHTML = '<option>Cargando...</option>';
+  const r = await fetch('/api/estudios/' + sid);
+  estudiosCache = await r.json();
+  sel.innerHTML = estudiosCache.map(e =>
+    `<option value="${e.id}" data-precio="${e.precio_venta}" data-clave="${e.clave}" data-nombre="${e.nombre}">
+      ${e.clave} — ${e.nombre} ($${e.precio_venta.toFixed(2)})
+    </option>`
+  ).join('') || '<option value="">Sin estudios</option>';
+}
+
+function agregarEstudio() {
+  const sel = document.getElementById('estudioSel');
+  const opt = sel.options[sel.selectedIndex];
+  if (!opt || !opt.value) return;
+  const cant = parseFloat(document.getElementById('cant').value) || 1;
+  const precio = parseFloat(opt.dataset.precio) || 0;
+  partidas.push({
+    id: opt.value, clave: opt.dataset.clave, nombre: opt.dataset.nombre,
+    cant, precio, importe: +(cant * precio).toFixed(2)
+  });
+  renderPartidas();
+}
+
+function quitar(i) { partidas.splice(i, 1); renderPartidas(); }
+
+function renderPartidas() {
+  const tbody = document.querySelector('#tablaPartidas tbody');
+  let total = 0;
+  tbody.innerHTML = partidas.map((p, i) => {
+    total += p.importe;
+    return `<tr>
+      <td>${p.clave}<input type="hidden" name="estudio_id" value="${p.id}"></td>
+      <td>${p.nombre}</td>
+      <td>${p.cant}<input type="hidden" name="cantidad" value="${p.cant}"></td>
+      <td>$${p.precio.toFixed(2)}<input type="hidden" name="precio" value="${p.precio}"></td>
+      <td>$${p.importe.toFixed(2)}</td>
+      <td><button type="button" class="btn btn-sm btn-outline-danger py-0" onclick="quitar(${i})">✕</button></td>
+    </tr>`;
+  }).join('');
+  document.getElementById('totalLabel').textContent = '$' + total.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+}
+
+document.addEventListener('DOMContentLoaded', cargarEstudios);
+</script>
+{% endblock %}

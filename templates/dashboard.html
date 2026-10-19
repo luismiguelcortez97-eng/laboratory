@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% block title %}Inicio — LC Lab{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h4 class="mb-0" style="color:#1a5276">Panel Principal</h4>
+  <small class="text-muted">{{ hoy }}</small>
+</div>
+<div class="row g-3 mb-4">
+  <div class="col-6 col-md-3">
+    <div class="kpi-card">
+      <div class="label">Ventas del día</div>
+      <div class="value">{{ total_ventas | money }}</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="kpi-card" style="border-color:#196f3d">
+      <div class="label">Cobrado hoy</div>
+      <div class="value" style="color:#196f3d">{{ total_cobrado | money }}</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="kpi-card" style="border-color:#b9770e">
+      <div class="label">Pendiente</div>
+      <div class="value" style="color:#b9770e">{{ total_pend | money }}</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="kpi-card" style="border-color:#2874a6">
+      <div class="label">Pacientes hoy</div>
+      <div class="value" style="color:#2874a6">{{ pacientes_hoy }}</div>
+    </div>
+  </div>
+</div>
+<div class="row g-3 mb-3">
+  <div class="col-md-6">
+    <div class="card card-lc p-3">
+      <h6 style="color:#1a5276">Ventas por sucursal (hoy)</h6>
+      {% for suc, val in por_suc.items() %}
+      <div class="d-flex justify-content-between py-1 border-bottom">
+        <span>{{ suc }}</span><strong>{{ val | money }}</strong>
+      </div>
+      {% else %}
+      <p class="text-muted mb-0">Sin movimientos hoy</p>
+      {% endfor %}
+    </div>
+  </div>
+  <div class="col-md-6">
+    <div class="card card-lc p-3">
+      <h6 style="color:#1a5276">Estudios más solicitados (hoy)</h6>
+      {% for e in top_estudios %}
+      <div class="d-flex justify-content-between py-1 border-bottom">
+        <span>{{ e.nombre }}</span><strong>{{ e.cant | int }}</strong>
+      </div>
+      {% else %}
+      <p class="text-muted mb-0">Sin movimientos hoy</p>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+<div class="d-flex flex-wrap gap-2">
+  <a href="/pacientes" class="btn btn-lc btn-sm"><i class="bi bi-person-plus"></i> Nuevo paciente</a>
+  <a href="/cotizacion" class="btn btn-lc btn-sm"><i class="bi bi-clipboard-plus"></i> Nueva cotización</a>
+  <a href="/diario" class="btn btn-outline-secondary btn-sm"><i class="bi bi-calendar3"></i> Registro diario</a>
+</div>
+{% endblock %}
