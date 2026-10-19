@@ -1,0 +1,109 @@
+{% extends "base.html" %}
+{% block title %}Registro Diario — LC Lab{% endblock %}
+{% block content %}
+<h4 class="mb-3" style="color:#1a5276">Registro Diario — {{ suc_nombre }}</h4>
+<form method="get" class="card card-lc p-3 mb-3">
+  <div class="row g-2 align-items-end">
+    <div class="col-md-3">
+      <label class="form-label small">Sucursal</label>
+      <select name="sucursal_id" class="form-select form-select-sm">
+        {% for s in sucursales %}
+        <option value="{{ s.id }}" {% if s.id==sucursal_id %}selected{% endif %}>{{ s.nombre }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-md-2">
+      <label class="form-label small">Fecha</label>
+      <input type="date" name="fecha" value="{{ fecha }}" class="form-control form-control-sm">
+    </div>
+    <div class="col-md-2">
+      <label class="form-label small">Estado</label>
+      <select name="estado" class="form-select form-select-sm">
+        {% for e in estados %}<option value="{{ e }}" {% if e==estado %}selected{% endif %}>{{ e }}</option>{% endfor %}
+      </select>
+    </div>
+    <div class="col-md-3">
+      <label class="form-label small">Buscar</label>
+      <input type="text" name="q" value="{{ q }}" class="form-control form-control-sm" placeholder="Paciente, folio, empleado">
+    </div>
+    <div class="col-md-2">
+      <button class="btn btn-lc btn-sm w-100">Filtrar</button>
+    </div>
+  </div>
+</form>
+
+<div class="card card-lc p-3 mb-3">
+  <div class="row text-center g-2">
+    <div class="col"><small class="text-muted">Operaciones</small><div class="fw-bold">{{ num_ops }}</div></div>
+    <div class="col"><small class="text-muted">Ventas</small><div class="fw-bold">{{ total_ventas | money }}</div></div>
+    <div class="col"><small class="text-muted">Cobrado</small><div class="fw-bold text-success">{{ total_cobrado | money }}</div></div>
+    <div class="col"><small class="text-muted">Pendiente</small><div class="fw-bold text-warning">{{ total_pend | money }}</div></div>
+  </div>
+  {% if por_met %}
+  <hr class="my-2">
+  <small class="text-muted">Por método: </small>
+  {% for m, v in por_met.items() %}<span class="badge bg-secondary me-1">{{ m }}: {{ v | money }}</span>{% endfor %}
+  {% endif %}
+</div>
+
+<div class="card card-lc p-3">
+  <div class="table-responsive">
+    <table class="table table-sm table-hover table-lc">
+      <thead><tr>
+        <th>Folio</th><th>Hora</th><th>Paciente</th><th>Estudios</th><th>Total</th><th>Estado</th><th>Método</th><th>Empleado</th><th></th>
+      </tr></thead>
+      <tbody>
+        {% for o in operaciones %}
+        <tr>
+          <td>{{ o.folio }}</td>
+          <td>{{ (o.fecha_hora or '')[11:16] }}</td>
+          <td>{{ o.paciente }}</td>
+          <td class="small">{{ (o.estudios or '')[:40] }}</td>
+          <td>{{ o.total | money }}</td>
+          <td>
+            <span class="badge badge-{{ o.estado_pago | lower }}">{{ o.estado_pago }}</span>
+          </td>
+          <td>{{ o.metodo_pago or '—' }}</td>
+          <td>{{ o.empleado or '—' }}</td>
+          <td class="text-nowrap">
+            {% if o.pdf_path %}<a href="/pdf/{{ o.id }}" class="btn btn-sm btn-outline-primary py-0" title="PDF">PDF</a>{% endif %}
+            {% if o.estado_pago != 'PAGADO' and o.estado_pago != 'CANCELADO' %}
+            <button class="btn btn-sm btn-outline-success py-0" data-bs-toggle="modal" data-bs-target="#pagoModal"
+              onclick="document.getElementById('pago_venta_id').value={{ o.id }}">Pago</button>
+            {% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="9" class="text-muted text-center">Sin operaciones</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Modal pago -->
+<div class="modal fade" id="pagoModal" tabindex="-1">
+  <div class="modal-dialog modal-sm">
+    <form method="post" action="/diario/pago" class="modal-content">
+      <div class="modal-header py-2"><h6 class="modal-title">Registrar pago</h6>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">
+        <input type="hidden" name="venta_id" id="pago_venta_id">
+        <div class="mb-2">
+          <label class="form-label small">Monto</label>
+          <input type="number" name="monto" class="form-control form-control-sm" step="0.01" min="0.01" required>
+        </div>
+        <div class="mb-2">
+          <label class="form-label small">Método</label>
+          <select name="metodo_pago" class="form-select form-select-sm">
+            <option>Efectivo</option><option>Transferencia</option><option>Tarjeta</option><option>Otro</option>
+          </select>
+        </div>
+      </div>
+      <div class="modal-footer py-2">
+        <button type="submit" class="btn btn-success btn-sm">Confirmar</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}

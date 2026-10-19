@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block title %}Catálogo — LC Lab{% endblock %}
+{% block content %}
+<h4 class="mb-3" style="color:#1a5276">Catálogo de Estudios</h4>
+<form method="get" class="mb-3">
+  <select name="sucursal_id" class="form-select form-select-sm" style="max-width:250px" onchange="this.form.submit()">
+    {% for s in sucursales %}
+    <option value="{{ s.id }}" {% if s.id==sucursal_id %}selected{% endif %}>{{ s.nombre }}</option>
+    {% endfor %}
+  </select>
+</form>
+<div class="card card-lc p-3 mb-3">
+  <form method="post" action="/catalogo/guardar" class="row g-2">
+    <input type="hidden" name="sucursal_id" value="{{ sucursal_id }}">
+    <input type="hidden" name="estudio_id" id="est_id" value="">
+    <div class="col-md-2"><label class="form-label small">Clave *</label>
+      <input type="text" name="clave" id="est_clave" class="form-control form-control-sm" required></div>
+    <div class="col-md-4"><label class="form-label small">Nombre *</label>
+      <input type="text" name="nombre" id="est_nombre" class="form-control form-control-sm" required></div>
+    <div class="col-md-2"><label class="form-label small">Precio venta</label>
+      <input type="number" name="precio_venta" id="est_precio" class="form-control form-control-sm" step="0.01" min="0" value="0"></div>
+    <div class="col-md-2"><label class="form-label small">Costo insumo</label>
+      <input type="number" name="costo_insumo" id="est_costo" class="form-control form-control-sm" step="0.01" min="0" value="0"></div>
+    <div class="col-md-2 d-flex align-items-end">
+      <button type="submit" class="btn btn-lc btn-sm w-100">Guardar</button>
+    </div>
+  </form>
+</div>
+<div class="card card-lc p-3">
+  <div class="table-responsive">
+    <table class="table table-sm table-hover table-lc">
+      <thead><tr><th>Clave</th><th>Nombre</th><th>Precio</th><th>Costo</th><th>Margen</th><th>Estado</th><th></th></tr></thead>
+      <tbody>
+        {% for e in estudios %}
+        <tr>
+          <td>{{ e.clave }}</td>
+          <td>{{ e.nombre }}</td>
+          <td>{{ e.precio_venta | money }}</td>
+          <td>{{ e.costo_insumo | money }}</td>
+          <td>{{ (e.precio_venta - e.costo_insumo) | money }}</td>
+          <td>{% if e.activo %}<span class="badge bg-success">Activo</span>{% else %}<span class="badge bg-secondary">Inactivo</span>{% endif %}</td>
+          <td>
+            <button class="btn btn-sm btn-outline-primary py-0" onclick="editar('{{ e.id }}','{{ e.clave }}','{{ e.nombre }}','{{ e.precio_venta }}','{{ e.costo_insumo }}')">Editar</button>
+            <form method="post" action="/catalogo/toggle" class="d-inline">
+              <input type="hidden" name="estudio_id" value="{{ e.id }}">
+              <input type="hidden" name="sucursal_id" value="{{ sucursal_id }}">
+              <button class="btn btn-sm btn-outline-secondary py-0">{% if e.activo %}Desactivar{% else %}Reactivar{% endif %}</button>
+            </form>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="7" class="text-muted text-center">Sin estudios en esta sucursal</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+<script>
+function editar(id, clave, nombre, precio, costo) {
+  document.getElementById('est_id').value = id;
+  document.getElementById('est_clave').value = clave;
+  document.getElementById('est_nombre').value = nombre;
+  document.getElementById('est_precio').value = precio;
+  document.getElementById('est_costo').value = costo;
+  window.scrollTo(0,0);
+}
+</script>
+{% endblock %}

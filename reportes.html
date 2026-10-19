@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% block title %}Reportes — LC Lab{% endblock %}
+{% block content %}
+<h4 class="mb-3" style="color:#1a5276">Reportes LC Lab y MILAB (protegidos)</h4>
+<p class="text-muted small">Requieren código de autorización de la sucursal. Códigos iniciales: Ejido Hermosillo = LC2024EJ · Tecolotes = LC2024TC</p>
+<div class="card card-lc p-3 mb-3" style="max-width:500px">
+  <form method="post" action="/reportes/generar">
+    <div class="mb-2">
+      <label class="form-label small">Sucursal</label>
+      <select name="sucursal_id" class="form-select form-select-sm" required>
+        {% for s in sucursales %}<option value="{{ s.id }}">{{ s.nombre }}</option>{% endfor %}
+      </select>
+    </div>
+    <div class="mb-2">
+      <label class="form-label small">Tipo de reporte</label>
+      <select name="tipo" class="form-select form-select-sm">
+        <option value="LC Lab">LC Lab</option>
+        <option value="MILAB">MILAB</option>
+      </select>
+    </div>
+    <div class="row g-2 mb-2">
+      <div class="col"><label class="form-label small">Desde</label>
+        <input type="date" name="desde" class="form-control form-control-sm" required></div>
+      <div class="col"><label class="form-label small">Hasta</label>
+        <input type="date" name="hasta" class="form-control form-control-sm" required></div>
+    </div>
+    <div class="mb-3">
+      <label class="form-label small">Código de autorización</label>
+      <input type="password" name="codigo" class="form-control form-control-sm" required autocomplete="off">
+    </div>
+    <button type="submit" class="btn btn-warning btn-sm"><i class="bi bi-shield-lock"></i> Generar reporte</button>
+  </form>
+</div>
+{% if resultado %}
+<div class="card card-lc p-3">
+  <h5 style="color:#1a5276">Reporte {{ resultado.tipo }} — {{ resultado.sucursal }}</h5>
+  <p class="mb-1">Periodo: {{ resultado.desde }} → {{ resultado.hasta }}</p>
+  <p class="mb-1">Operaciones: <strong>{{ resultado.ops }}</strong></p>
+  <p class="mb-1">Total ventas: <strong>{{ resultado.total_ventas | money }}</strong></p>
+  <p class="mb-1">Total cobrado: <strong>{{ resultado.total_cobrado | money }}</strong></p>
+  <p class="mb-3">Total pendiente: <strong>{{ resultado.total_pendiente | money }}</strong></p>
+  <div class="table-responsive">
+    <table class="table table-sm table-lc">
+      <thead><tr><th>Folio</th><th>Fecha</th><th>Total</th><th>Cobrado</th><th>Estado</th><th>Método</th></tr></thead>
+      <tbody>
+        {% for r in resultado.detalle %}
+        <tr>
+          <td>{{ r.folio }}</td>
+          <td>{{ r.fecha_hora | dt }}</td>
+          <td>{{ r.total | money }}</td>
+          <td>{{ r.monto_recibido | money }}</td>
+          <td>{{ r.estado_pago }}</td>
+          <td>{{ r.metodo_pago or '—' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+{% endblock %}

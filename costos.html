@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block title %}Costos — LC Lab{% endblock %}
+{% block content %}
+<h4 class="mb-3" style="color:#1a5276">Costos, Insumos y Margen Bruto</h4>
+<p class="text-muted small">Margen bruto = Precio − Costo. No es utilidad neta (no descuenta nómina, renta, etc.).</p>
+<form method="get" class="card card-lc p-3 mb-3">
+  <div class="row g-2 align-items-end">
+    <div class="col-md-3">
+      <label class="form-label small">Sucursal</label>
+      <select name="sucursal_id" class="form-select form-select-sm">
+        <option value="0">Todas</option>
+        {% for s in sucursales %}
+        <option value="{{ s.id }}" {% if sucursal_id==s.id|string %}selected{% endif %}>{{ s.nombre }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-md-2">
+      <label class="form-label small">Desde</label>
+      <input type="date" name="desde" value="{{ desde }}" class="form-control form-control-sm">
+    </div>
+    <div class="col-md-2">
+      <label class="form-label small">Hasta</label>
+      <input type="date" name="hasta" value="{{ hasta }}" class="form-control form-control-sm">
+    </div>
+    <div class="col-md-2">
+      <button class="btn btn-lc btn-sm">Analizar</button>
+    </div>
+  </div>
+</form>
+<div class="card card-lc p-3">
+  <div class="table-responsive">
+    <table class="table table-sm table-hover table-lc">
+      <thead><tr>
+        <th>Clave</th><th>Estudio</th><th>P.Venta</th><th>Costo</th><th>Margen u.</th><th>%</th>
+        <th>Cant.</th><th>Ingresos</th><th>Costos</th><th>M. Bruto</th>
+      </tr></thead>
+      <tbody>
+        {% for a in analisis %}
+        <tr>
+          <td>{{ a.clave }}</td>
+          <td>{{ a.nombre }}</td>
+          <td>{{ a.precio_unitario | money }}</td>
+          <td>{{ a.costo_unitario | money }}</td>
+          <td>{{ a.margen_u | money }}</td>
+          <td>{{ a.pct }}%</td>
+          <td>{{ a.cant | int }}</td>
+          <td>{{ a.ingresos | money }}</td>
+          <td>{{ a.costos | money }}</td>
+          <td>{{ a.margen_total | money }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="10" class="text-muted text-center">Sin datos en el periodo</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

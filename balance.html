@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}Balance — LC Lab{% endblock %}
+{% block content %}
+<h4 class="mb-3" style="color:#1a5276">{{ titulo }}</h4>
+<form method="get" class="mb-3 d-flex flex-wrap gap-2 align-items-end">
+  <div>
+    <label class="form-label small">Fecha</label>
+    <input type="date" name="fecha" value="{{ fecha }}" class="form-control form-control-sm">
+  </div>
+  <div>
+    <label class="form-label small">Modo</label>
+    <select name="modo" class="form-select form-select-sm">
+      <option value="diario" {% if modo=='diario' %}selected{% endif %}>Diario</option>
+      <option value="semanal" {% if modo=='semanal' %}selected{% endif %}>Semanal</option>
+    </select>
+  </div>
+  <button class="btn btn-lc btn-sm">Consultar</button>
+</form>
+{% for d in datos %}
+<div class="card card-lc p-3 mb-3">
+  <h6 style="color:#1a5276">{{ d.nombre }}</h6>
+  <div class="row g-2">
+    <div class="col-6 col-md-2"><small class="text-muted">Ventas</small><div class="fw-bold">{{ d.ventas | money }}</div></div>
+    <div class="col-6 col-md-2"><small class="text-muted">Cobrado</small><div class="fw-bold text-success">{{ d.cobrado | money }}</div></div>
+    <div class="col-6 col-md-2"><small class="text-muted">Pendiente</small><div class="fw-bold text-warning">{{ d.pendiente | money }}</div></div>
+    <div class="col-6 col-md-2"><small class="text-muted">Costos est.</small><div class="fw-bold">{{ d.costos | money }}</div></div>
+    <div class="col-6 col-md-2"><small class="text-muted">Margen bruto</small><div class="fw-bold text-primary">{{ d.margen | money }}</div></div>
+  </div>
+  {% if d.por_met %}
+  <div class="mt-2 small">Métodos:
+    {% for m,v in d.por_met.items() %}<span class="badge bg-secondary me-1">{{ m }}: {{ v | money }}</span>{% endfor %}
+  </div>
+  {% endif %}
+  {% if d.por_emp %}
+  <div class="mt-1 small">Empleados:
+    {% for m,v in d.por_emp.items() %}<span class="badge bg-light text-dark me-1">{{ m }}: {{ v | money }}</span>{% endfor %}
+  </div>
+  {% endif %}
+</div>
+{% endfor %}
+<div class="card card-lc p-3">
+  <strong>TOTAL GENERAL — Ventas: {{ total_g_v | money }} · Cobrado: {{ total_g_c | money }}</strong>
+</div>
+{% endblock %}
