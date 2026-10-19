@@ -1,13 +1,16 @@
 
 """LC Lab Web - Sistema de Laboratorio Clinico"""
+
+import os
+from pathlib import Path
+from datetime import date, timedelta
+
 from fastapi import FastAPI, Request, Form, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from jinja2 import Environment, FileSystemLoader
 from starlette.middleware.sessions import SessionMiddleware
-from pathlib import Path
-from datetime import date, timedelta
 
 from database import db, DOCS_DIR, verify_password
 from helpers import (
@@ -17,9 +20,22 @@ from helpers import (
 from pdf_gen import generar_pdf_venta
 
 BASE = Path(__file__).resolve().parent
+
 app = FastAPI(title="LC Lab", version="2.0.0")
-app.add_middleware(SessionMiddleware, secret_key="lc-lab-secret-key-2024-cambiar")
-app.mount("/static", StaticFiles(directory=str(BASE / "static")), name="static")
+
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=os.environ.get(
+        "SESSION_SECRET",
+        "lc-lab-session-change-this"
+    )
+)
+
+app.mount(
+    "/static",
+    StaticFiles(directory=str(BASE / "static")),
+    name="static"
+)
 
 _env = Environment(loader=FileSystemLoader(str(BASE / "templates")), autoescape=True, cache_size=0)
 _env.filters["money"] = format_money
