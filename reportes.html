@@ -2,7 +2,7 @@
 {% block title %}Reportes — LC Lab{% endblock %}
 {% block content %}
 <h4 class="mb-3" style="color:#1a5276">Reportes LC Lab y MILAB (protegidos)</h4>
-<p class="text-muted small">Requieren código de autorización de la sucursal. Códigos iniciales: Ejido Hermosillo = LC2024EJ · Tecolotes = LC2024TC</p>
+<p class="text-muted small">Requieren código de autorización de la sucursal. MILAB genera un PDF con la lista de pacientes, sus estudios y únicamente los costos de insumo.</p>
 <div class="card card-lc p-3 mb-3" style="max-width:500px">
   <form method="post" action="/reportes/generar">
     <div class="mb-2">
@@ -15,7 +15,7 @@
       <label class="form-label small">Tipo de reporte</label>
       <select name="tipo" class="form-select form-select-sm">
         <option value="LC Lab">LC Lab</option>
-        <option value="MILAB">MILAB</option>
+        <option value="MILAB">MILAB — pacientes e insumos (PDF)</option>
       </select>
     </div>
     <div class="row g-2 mb-2">

@@ -17,7 +17,7 @@ from helpers import (
     now_iso, today_str, format_money, safe_float, safe_int,
     format_dt, calcular_margen, METODOS_PAGO, ESTADOS_PAGO, SEXOS, PUESTOS
 )
-from pdf_gen import generar_pdf_venta
+from pdf_gen import generar_pdf_venta, generar_pdf_milab
 
 BASE = Path(__file__).resolve().parent
 
@@ -439,18 +439,43 @@ async def reportes_generar(request: Request, sucursal_id: int = Form(...), tipo:
     sucursales = db.fetchall("SELECT * FROM sucursales WHERE activa=1")
     cod = db.fetchone("SELECT codigo FROM codigos_autorizacion WHERE sucursal_id=?", (sucursal_id,))
     if not cod or cod["codigo"] != codigo.strip():
-        flash(request, "Codigo incorrecto", "danger")
+        flash(request, "Código incorrecto", "danger")
         return templates.TemplateResponse(request, "reportes.html", {"user": user, "flashes": get_flashes(request), "sucursales": sucursales, "resultado": None})
+    if desde > hasta:
+        flash(request, "La fecha inicial no puede ser posterior a la fecha final.", "danger")
+        return templates.TemplateResponse(request, "reportes.html", {"user": user, "flashes": get_flashes(request), "sucursales": sucursales, "resultado": None})
+    suc = db.fetchone("SELECT nombre FROM sucursales WHERE id=?", (sucursal_id,))
+    sucursal = suc["nombre"] if suc else ""
+
+    # MILAB: pacientes, estudios y costos de insumo; nunca precio de venta.
+    if tipo.strip().upper() == "MILAB":
+        detalles = db.fetchall(
+            """SELECT v.folio, v.fecha_hora, p.folio AS folio_paciente,
+                      p.nombre_completo AS paciente, vd.clave, vd.nombre AS estudio,
+                      vd.cantidad, vd.costo_unitario,
+                      (vd.cantidad * vd.costo_unitario) AS costo_total
+               FROM ventas v
+               JOIN pacientes p ON p.id=v.paciente_id
+               JOIN venta_detalles vd ON vd.venta_id=v.id
+               WHERE v.sucursal_id=? AND date(v.fecha_hora) BETWEEN ? AND ?
+                 AND v.activo=1 AND v.estado_pago!='CANCELADO'
+               ORDER BY v.fecha_hora, p.nombre_completo, vd.nombre""",
+            (sucursal_id, desde, hasta))
+        pdf_path = generar_pdf_milab(detalles, sucursal, desde, hasta)
+        return FileResponse(path=pdf_path, filename=f"MILAB_{desde}_{hasta}.pdf",
+                            media_type="application/pdf", content_disposition_type="inline")
+
+    # El reporte LC Lab conserva su funcionamiento de ventas y cobros.
     rows = db.fetchall(
         """SELECT v.folio, v.fecha_hora, v.total, v.monto_recibido, v.estado_pago, v.metodo_pago FROM ventas v
            WHERE v.sucursal_id=? AND date(v.fecha_hora) BETWEEN ? AND ? AND v.activo=1 AND v.estado_pago!='CANCELADO'
            ORDER BY v.fecha_hora""", (sucursal_id, desde, hasta))
-    suc = db.fetchone("SELECT nombre FROM sucursales WHERE id=?", (sucursal_id,))
     resultado = {
-        "tipo": tipo, "sucursal": suc["nombre"] if suc else "", "desde": desde, "hasta": hasta,
+        "tipo": "LC Lab", "sucursal": sucursal, "desde": desde, "hasta": hasta,
         "ops": len(rows), "total_ventas": sum(r["total"] or 0 for r in rows),
         "total_cobrado": sum(r["monto_recibido"] or 0 for r in rows),
-        "total_pendiente": sum(max(0, (r["total"] or 0) - (r["monto_recibido"] or 0)) for r in rows), "detalle": rows,
+        "total_pendiente": sum(max(0, (r["total"] or 0) - (r["monto_recibido"] or 0)) for r in rows),
+        "detalle": rows,
     }
     return templates.TemplateResponse(request, "reportes.html", {"user": user, "flashes": get_flashes(request), "sucursales": sucursales, "resultado": resultado})
 

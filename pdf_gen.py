@@ -115,3 +115,68 @@ def generar_pdf_venta(venta, detalles, paciente, sucursal, empleado):
     story.append(Paragraph(f"Generado el {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}", st["Cen"]))
     doc.build(story)
     return str(path)
+
+
+def generar_pdf_milab(detalles, sucursal, desde, hasta):
+    """PDF MILAB: total de insumos por paciente y total general."""
+    from xml.sax.saxutils import escape
+
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    path = DOCS_DIR / f"MILAB_{desde}_{hasta}_{ts}.pdf"
+    doc = SimpleDocTemplate(str(path), pagesize=letter, rightMargin=1.5*cm,
+                            leftMargin=1.5*cm, topMargin=1.2*cm, bottomMargin=1.2*cm)
+    st = _styles()
+    story = [
+        Paragraph("LC LAB", st["Titulo"]),
+        Paragraph("REPORTE DE INSUMOS — MILAB", st["Sub"]),
+        Paragraph("Sucursal: " + escape(str(sucursal)), st["Cen"]),
+        Paragraph("Periodo: " + escape(str(desde)) + " al " + escape(str(hasta)), st["Cen"]),
+        Spacer(1, 8),
+        HRFlowable(width="100%", thickness=1.5, color=AZUL, spaceAfter=8),
+    ]
+
+    # Agrupa todos los conceptos de cada paciente en un solo importe.
+    pacientes = {}
+    for r in detalles:
+        folio = str(r["folio_paciente"] or "")
+        nombre = str(r["paciente"] or "Paciente sin nombre")
+        clave = (folio, nombre)
+        pacientes[clave] = pacientes.get(clave, 0.0) + float(r["costo_total"] or 0)
+
+    data = [[Paragraph("<b>Paciente</b>", st["Cen"]),
+             Paragraph("<b>Total de insumos</b>", st["Cen"])]]
+    total_general = 0.0
+    for (folio, nombre), total_paciente in sorted(pacientes.items(), key=lambda x: x[0][1].casefold()):
+        nombre_html = escape(nombre)
+        if folio:
+            nombre_html += "<br/><font size='8'>Folio: " + escape(folio) + "</font>"
+        data.append([Paragraph(nombre_html, st["Sm"]),
+                     Paragraph(f"MXN {total_paciente:,.2f}", st["Der"])])
+        total_general += total_paciente
+
+    if not pacientes:
+        data.append([Paragraph("Sin pacientes registrados en el periodo seleccionado.", st["Sm"]), ""])
+
+    data.append([Paragraph("<b>TOTAL GENERAL</b>", st["Sm"]),
+                 Paragraph(f"<b>MXN {total_general:,.2f}</b>", st["Der"])])
+
+    tabla = Table(data, repeatRows=1, colWidths=[11.5*cm, 6*cm])
+    tabla.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), AZUL),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#aab7b8")),
+        ("ROWBACKGROUNDS", (0, 1), (-1, -2), [colors.white, AZUL_CLARO]),
+        ("BACKGROUND", (0, -1), (-1, -1), AZUL_CLARO),
+        ("BOX", (0, -1), (-1, -1), 0.8, AZUL),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("TOPPADDING", (0, 0), (-1, -1), 7),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
+        ("LEFTPADDING", (0, 0), (-1, -1), 8),
+    ]))
+    story.extend([
+        tabla, Spacer(1, 12),
+        Paragraph("Solo total de insumos por paciente y total general. Sin desglose de estudios, precios de venta ni cobros.", st["Cen"]),
+        Paragraph("Generado el " + datetime.now().strftime("%d/%m/%Y %H:%M:%S"), st["Cen"]),
+    ])
+    doc.build(story)
+    return str(path)
