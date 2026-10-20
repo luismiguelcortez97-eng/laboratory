@@ -392,33 +392,116 @@ async def empleados_page(request: Request):
     user = get_user(request)
     if not user:
         return RedirectResponse("/login", status_code=303)
-    return templates.TemplateResponse(request, "empleados.html", {"user": user, "flashes": get_flashes(request),
-        "empleados": db.fetchall("SELECT * FROM empleados ORDER BY nombre_completo"), "puestos": PUESTOS,
+    if user["rol"] != "Administrador":
+        raise HTTPException(status_code=403, detail="Solo el administrador puede administrar empleados y usuarios.")
+    empleados = db.fetchall(
+        """SELECT e.*, u.id AS usuario_id, u.username AS username,
+                  u.rol AS rol_usuario, u.activo AS usuario_activo
+           FROM empleados e
+           LEFT JOIN usuarios u ON u.empleado_id=e.id
+           ORDER BY e.nombre_completo"""
+    )
+    return templates.TemplateResponse(request, "empleados.html", {
+        "user": user, "flashes": get_flashes(request),
+        "empleados": empleados, "puestos": PUESTOS,
     })
 
+
 @app.post("/empleados/guardar")
-async def empleados_guardar(request: Request, nombre_completo: str = Form(...), puesto: str = Form(...), empleado_id: str = Form("")):
+async def empleados_guardar(
+    request: Request,
+    nombre_completo: str = Form(...),
+    puesto: str = Form(...),
+    empleado_id: str = Form(""),
+    username: str = Form(""),
+    password: str = Form(""),
+    rol_usuario: str = Form("Recepcionista"),
+):
     user = get_user(request)
     if not user:
         return RedirectResponse("/login", status_code=303)
+    if user["rol"] != "Administrador":
+        raise HTTPException(status_code=403, detail="Solo el administrador puede crear o modificar empleados y usuarios.")
+
+    nombre = nombre_completo.strip()
+    username = username.strip().lower()
+    rol_usuario = rol_usuario.strip()
+    if not nombre:
+        flash(request, "El nombre completo es obligatorio.", "danger")
+        return RedirectResponse("/empleados", status_code=303)
+    if rol_usuario not in ("Administrador", "Recepcionista"):
+        flash(request, "Nivel de acceso no válido.", "danger")
+        return RedirectResponse("/empleados", status_code=303)
+
     if empleado_id:
+        emp = db.fetchone("SELECT id FROM empleados WHERE id=?", (int(empleado_id),))
+        if not emp:
+            flash(request, "No se encontró el empleado.", "danger")
+            return RedirectResponse("/empleados", status_code=303)
+        cuenta = db.fetchone("SELECT id, username FROM usuarios WHERE empleado_id=?", (int(empleado_id),))
+        if not username:
+            flash(request, "El nombre de usuario es obligatorio.", "danger")
+            return RedirectResponse("/empleados", status_code=303)
+        if not cuenta and not password:
+            flash(request, "Escribe una contraseña para crear el acceso de este empleado.", "danger")
+            return RedirectResponse("/empleados", status_code=303)
+        if password and len(password) < 6:
+            flash(request, "La contraseña debe tener al menos 6 caracteres.", "danger")
+            return RedirectResponse("/empleados", status_code=303)
+        otro = db.fetchone("SELECT id FROM usuarios WHERE username=? AND empleado_id IS NOT NULL AND empleado_id<>?", (username, int(empleado_id)))
+        if otro:
+            flash(request, "Ese nombre de usuario ya está ocupado.", "danger")
+            return RedirectResponse("/empleados", status_code=303)
         db.execute("UPDATE empleados SET nombre_completo=?, puesto=?, updated_at=? WHERE id=?",
-            (nombre_completo.strip(), puesto, now_iso(), int(empleado_id)))
-        flash(request, "Actualizado")
+                   (nombre, puesto, now_iso(), int(empleado_id)))
+        if cuenta:
+            if password:
+                db.execute("UPDATE usuarios SET username=?, password_hash=?, nombre_completo=?, rol=? WHERE id=?",
+                           (username, hash_password(password), nombre, rol_usuario, cuenta["id"]))
+            else:
+                db.execute("UPDATE usuarios SET username=?, nombre_completo=?, rol=? WHERE id=?",
+                           (username, nombre, rol_usuario, cuenta["id"]))
+        else:
+            db.execute("""INSERT INTO usuarios
+                (username, password_hash, nombre_completo, rol, empleado_id, activo, created_at)
+                VALUES (?, ?, ?, ?, ?, 1, ?)""",
+                (username, hash_password(password), nombre, rol_usuario, int(empleado_id), now_iso()))
+        flash(request, "Empleado y acceso actualizados.")
     else:
-        db.execute("INSERT INTO empleados (nombre_completo, puesto, activo, fecha_alta, created_at) VALUES (?,?,1,?,?)",
-            (nombre_completo.strip(), puesto, today_str(), now_iso()))
-        flash(request, "Agregado")
+        if not username or len(username) < 3:
+            flash(request, "El usuario debe tener al menos 3 caracteres.", "danger")
+            return RedirectResponse("/empleados", status_code=303)
+        if len(password) < 6:
+            flash(request, "La contraseña debe tener al menos 6 caracteres.", "danger")
+            return RedirectResponse("/empleados", status_code=303)
+        if db.fetchone("SELECT id FROM usuarios WHERE username=?", (username,)):
+            flash(request, "Ese nombre de usuario ya existe.", "danger")
+            return RedirectResponse("/empleados", status_code=303)
+        with db.cursor() as cur:
+            cur.execute("""INSERT INTO empleados
+                (nombre_completo, puesto, activo, fecha_alta, created_at)
+                VALUES (?, ?, 1, ?, ?)""", (nombre, puesto, today_str(), now_iso()))
+            nuevo_id = cur.lastrowid
+            cur.execute("""INSERT INTO usuarios
+                (username, password_hash, nombre_completo, rol, empleado_id, activo, created_at)
+                VALUES (?, ?, ?, ?, ?, 1, ?)""",
+                (username, hash_password(password), nombre, rol_usuario, nuevo_id, now_iso()))
+        flash(request, "Empleado creado con su usuario de acceso.")
     return RedirectResponse("/empleados", status_code=303)
+
 
 @app.post("/empleados/toggle")
 async def empleados_toggle(request: Request, empleado_id: int = Form(...)):
     user = get_user(request)
     if not user:
         return RedirectResponse("/login", status_code=303)
+    if user["rol"] != "Administrador":
+        raise HTTPException(status_code=403, detail="Solo el administrador puede activar o desactivar empleados.")
     emp = db.fetchone("SELECT activo FROM empleados WHERE id=?", (empleado_id,))
     if emp:
-        db.execute("UPDATE empleados SET activo=?, updated_at=? WHERE id=?", (0 if emp["activo"] else 1, now_iso(), empleado_id))
+        nuevo_estado = 0 if emp["activo"] else 1
+        db.execute("UPDATE empleados SET activo=?, updated_at=? WHERE id=?", (nuevo_estado, now_iso(), empleado_id))
+        db.execute("UPDATE usuarios SET activo=? WHERE empleado_id=?", (nuevo_estado, empleado_id))
     return RedirectResponse("/empleados", status_code=303)
 
 @app.get("/reportes", response_class=HTMLResponse)
