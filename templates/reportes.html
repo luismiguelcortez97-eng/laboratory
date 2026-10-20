@@ -26,10 +26,10 @@
     </div>
     <div class="mb-3">
       <label class="form-label small">Código de autorización</label>
-      <input type="password" name="codigo" class="form-control form-control-sm" required autocomplete="off">
+      <input type="password" name="codigo" class="form-control form-control-sm" required autocomplete="off" value="{{ sel_codigo|default('') }}">
     </div>
     <button type="submit" class="btn btn-warning btn-sm"><i class="bi bi-file-earmark-pdf"></i> Generar / imprimir PDF</button>
-    <p class="text-muted small mt-2 mb-0">MILAB: PDF con el total de insumos por paciente y el total general.</p>
+    <p class="text-muted small mt-2 mb-0">LC Lab: genera el PDF del balance de ventas. MILAB: primero muestra una vista previa para revisar pacientes y estudios antes de imprimir.</p>
   </form>
 </div>
 {% if revision_milab %}

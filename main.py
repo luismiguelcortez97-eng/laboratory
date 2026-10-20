@@ -17,7 +17,7 @@ from helpers import (
     now_iso, today_str, format_money, safe_float, safe_int,
     format_dt, calcular_margen, METODOS_PAGO, ESTADOS_PAGO, SEXOS, PUESTOS
 )
-from pdf_gen import generar_pdf_venta, generar_pdf_milab
+from pdf_gen import generar_pdf_venta, generar_pdf_milab, generar_pdf_reporte_lc
 
 BASE = Path(__file__).resolve().parent
 
@@ -98,6 +98,26 @@ if not existe_confirmado:
             for id_texto in (cierre_anterior["venta_ids"] or "").split(","):
                 if id_texto.strip().isdigit():
                     db.execute("UPDATE ventas SET confirmado=1 WHERE id=?", (int(id_texto),))
+    except Exception:
+        pass
+
+# Migración de descuentos para bases existentes (SQLite y PostgreSQL).
+try:
+    columnas_descuento = db.fetchall("PRAGMA table_info(ventas)") if not db.use_postgres else db.fetchall(
+        "SELECT column_name AS name FROM information_schema.columns WHERE table_name='ventas'"
+    )
+    nombres_columnas_descuento = {col["name"] for col in columnas_descuento}
+except Exception:
+    nombres_columnas_descuento = set()
+
+if "descuento_porcentaje" not in nombres_columnas_descuento:
+    try:
+        db.execute("ALTER TABLE ventas ADD COLUMN descuento_porcentaje REAL NOT NULL DEFAULT 0")
+    except Exception:
+        pass
+if "descuento_monto" not in nombres_columnas_descuento:
+    try:
+        db.execute("ALTER TABLE ventas ADD COLUMN descuento_monto REAL NOT NULL DEFAULT 0")
     except Exception:
         pass
 
@@ -229,6 +249,7 @@ async def cotizacion_guardar(request: Request):
     metodo = form.get("metodo_pago") or "Efectivo"
     estado_deseado = form.get("estado") or "PENDIENTE"
     monto = safe_float(form.get("monto_recibido"))
+    descuento_porcentaje = max(0.0, min(100.0, safe_float(form.get("descuento_porcentaje"))))
     est_ids = form.getlist("estudio_id")
     cants = form.getlist("cantidad")
     precios = form.getlist("precio")
@@ -249,10 +270,15 @@ async def cotizacion_guardar(request: Request):
     if not partidas:
         flash(request, "Sin estudios", "danger")
         return RedirectResponse("/cotizacion", status_code=303)
+    subtotal = round(total, 2)
+    descuento_monto = round(subtotal * descuento_porcentaje / 100.0, 2)
+    total = round(max(0.0, subtotal - descuento_monto), 2)
     if estado_deseado == "COTIZACION":
         estado, monto = "COTIZACION", 0.0
     elif estado_deseado == "PENDIENTE":
         estado, monto = "PENDIENTE", 0.0
+    elif estado_deseado == "PAGADO":
+        estado, monto = "PAGADO", total
     elif monto >= total - 0.01:
         estado = "PAGADO"
         monto = monto if monto > 0 else total
@@ -262,8 +288,10 @@ async def cotizacion_guardar(request: Request):
     folio = db.generar_folio("V")
     with db.cursor() as cur:
         cur.execute("""INSERT INTO ventas (folio, paciente_id, sucursal_id, empleado_id, fecha_hora, total,
-            estado_pago, metodo_pago, monto_recibido, saldo_pendiente, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
-            (folio, paciente_id, sucursal_id, empleado_id, now_iso(), total, estado, metodo if monto > 0 else None, monto, saldo, now_iso()))
+            estado_pago, metodo_pago, monto_recibido, saldo_pendiente, descuento_porcentaje, descuento_monto, observaciones, created_at)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (folio, paciente_id, sucursal_id, empleado_id, now_iso(), total, estado, metodo if monto > 0 else None,
+             monto, saldo, descuento_porcentaje, descuento_monto, (form.get("observaciones") or "").strip() or None, now_iso()))
         venta_id = cur.lastrowid
         for p in partidas:
             cur.execute("""INSERT INTO venta_detalles (venta_id, estudio_id, clave, nombre, cantidad, precio_unitario, costo_unitario, importe)
@@ -669,17 +697,20 @@ async def reportes_generar(request: Request, sucursal_id: int = Form(...), tipo:
     if not user:
         return RedirectResponse("/login", status_code=303)
     sucursales = db.fetchall("SELECT * FROM sucursales WHERE activa=1")
+    datos_form = {
+        "user": user, "flashes": get_flashes(request), "sucursales": sucursales,
+        "resultado": None, "revision_milab": None, "sel_sucursal": sucursal_id,
+        "sel_tipo": tipo, "sel_desde": desde, "sel_hasta": hasta, "sel_codigo": codigo,
+    }
     cod = db.fetchone("SELECT codigo FROM codigos_autorizacion WHERE sucursal_id=?", (sucursal_id,))
     if not cod or cod["codigo"] != codigo.strip():
         flash(request, "Código incorrecto", "danger")
-        return templates.TemplateResponse(request, "reportes.html", {"user": user, "flashes": get_flashes(request),
-            "sucursales": sucursales, "resultado": None, "revision_milab": None,
-            "sel_sucursal": sucursal_id, "sel_tipo": tipo, "sel_desde": desde, "sel_hasta": hasta})
+        datos_form["flashes"] = get_flashes(request)
+        return templates.TemplateResponse(request, "reportes.html", datos_form)
     if desde > hasta:
         flash(request, "La fecha inicial no puede ser posterior a la fecha final.", "danger")
-        return templates.TemplateResponse(request, "reportes.html", {"user": user, "flashes": get_flashes(request),
-            "sucursales": sucursales, "resultado": None, "revision_milab": None,
-            "sel_sucursal": sucursal_id, "sel_tipo": tipo, "sel_desde": desde, "sel_hasta": hasta})
+        datos_form["flashes"] = get_flashes(request)
+        return templates.TemplateResponse(request, "reportes.html", datos_form)
     suc = db.fetchone("SELECT nombre FROM sucursales WHERE id=?", (sucursal_id,))
     sucursal = suc["nombre"] if suc else ""
 
@@ -687,10 +718,6 @@ async def reportes_generar(request: Request, sucursal_id: int = Form(...), tipo:
         "SELECT fecha, venta_ids FROM cierres_diarios WHERE sucursal_id=? AND fecha BETWEEN ? AND ? ORDER BY fecha",
         (sucursal_id, desde, hasta)
     )
-
-    # Compatibilidad: incluir tanto las ventas confirmadas individualmente como
-    # las incluidas en cierres diarios anteriores a la columna confirmado.
-    # Cada ID se vuelve a validar por sucursal, fecha, estado y activo más abajo.
     ids_desde_cierres = set()
     for cierre in cierres:
         for id_texto in (cierre["venta_ids"] or "").split(","):
@@ -745,6 +772,14 @@ async def reportes_generar(request: Request, sucursal_id: int = Form(...), tipo:
                     ORDER BY v.fecha_hora, p.nombre_completo, vd.nombre""",
                 [sucursal_id, desde, hasta] + ids_confirmados
             )
+        if confirmar_pdf != "1":
+            datos_form["revision_milab"] = {
+                "sucursal": sucursal, "desde": desde, "hasta": hasta,
+                "pacientes": len({(r["folio_paciente"], r["paciente"]) for r in detalles}),
+                "detalles": detalles,
+                "total_insumos": sum(float(r["costo_total"] or 0) for r in detalles),
+            }
+            return templates.TemplateResponse(request, "reportes.html", datos_form)
         pdf_path = generar_pdf_milab(detalles, sucursal, desde, hasta)
         return FileResponse(path=pdf_path, filename=f"MILAB_{desde}_{hasta}.pdf",
                             media_type="application/pdf", content_disposition_type="inline")
@@ -753,23 +788,19 @@ async def reportes_generar(request: Request, sucursal_id: int = Form(...), tipo:
     if ids_confirmados:
         placeholders = ",".join("?" for _ in ids_confirmados)
         rows = db.fetchall(
-            f"""SELECT v.folio, v.fecha_hora, v.total, v.monto_recibido, v.estado_pago, v.metodo_pago FROM ventas v
+            f"""SELECT v.folio, v.fecha_hora, v.total, v.monto_recibido, v.estado_pago, v.metodo_pago
+                       , v.descuento_porcentaje, v.descuento_monto
+                FROM ventas v
                 WHERE v.sucursal_id=? AND date(v.fecha_hora) BETWEEN ? AND ?
                   AND v.id IN ({placeholders})
                   AND COALESCE(v.activo, 0)=1
                   AND UPPER(TRIM(COALESCE(v.estado_pago, ''))) NOT IN
-                      ('CANCELADO', 'CANCELADA', 'CANCELLED', 'CANCEL', 'ANULADO', 'ANULADA')
+                      ('COTIZACION', 'CANCELADO', 'CANCELADA', 'CANCELLED', 'CANCEL', 'ANULADO', 'ANULADA')
                 ORDER BY v.fecha_hora""", [sucursal_id, desde, hasta] + ids_confirmados)
-    resultado = {
-        "tipo": "LC Lab", "sucursal": sucursal, "desde": desde, "hasta": hasta,
-        "ops": len(rows), "total_ventas": sum(r["total"] or 0 for r in rows),
-        "total_cobrado": sum(r["monto_recibido"] or 0 for r in rows),
-        "total_pendiente": sum(max(0, (r["total"] or 0) - (r["monto_recibido"] or 0)) for r in rows),
-        "detalle": rows,
-    }
-    return templates.TemplateResponse(request, "reportes.html", {"user": user, "flashes": get_flashes(request),
-        "sucursales": sucursales, "resultado": resultado, "revision_milab": None,
-        "sel_sucursal": sucursal_id, "sel_tipo": tipo, "sel_desde": desde, "sel_hasta": hasta})
+    rows = [dict(r) for r in rows]
+    pdf_path = generar_pdf_reporte_lc(rows, sucursal, desde, hasta)
+    return FileResponse(path=pdf_path, filename=f"LC_Lab_{desde}_{hasta}.pdf",
+                        media_type="application/pdf", content_disposition_type="inline")
 
 @app.get("/balance", response_class=HTMLResponse)
 async def balance_page(request: Request, fecha: str = "", modo: str = "diario"):

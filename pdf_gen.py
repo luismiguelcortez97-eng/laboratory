@@ -96,7 +96,14 @@ def generar_pdf_venta(venta, detalles, paciente, sucursal, empleado):
     total = float(venta.get("total", 0))
     recibido = float(venta.get("monto_recibido", 0))
     saldo = float(venta.get("saldo_pendiente", total - recibido))
-    tot = [[Paragraph("<b>TOTAL</b>", st["Sm"]), Paragraph(f"<b>${total:,.2f}</b>", st["Der"])]]
+    subtotal = round(total + float(venta.get("descuento_monto", 0) or 0), 2)
+    porcentaje_descuento = float(venta.get("descuento_porcentaje", 0) or 0)
+    descuento_monto = float(venta.get("descuento_monto", 0) or 0)
+    tot = []
+    if descuento_monto > 0:
+        tot.append([Paragraph("Subtotal", st["Sm"]), Paragraph(f"${subtotal:,.2f}", st["Der"])])
+        tot.append([Paragraph(f"Descuento ({porcentaje_descuento:g}%)", st["Sm"]), Paragraph(f"-${descuento_monto:,.2f}", st["Der"])])
+    tot.append([Paragraph("<b>TOTAL</b>", st["Sm"]), Paragraph(f"<b>${total:,.2f}</b>", st["Der"])])
     if recibido > 0:
         tot.append([Paragraph("Monto recibido", st["Sm"]), Paragraph(f"${recibido:,.2f}", st["Der"])])
     if saldo > 0.01:
@@ -183,6 +190,69 @@ def generar_pdf_milab(detalles, sucursal, desde, hasta):
     story.extend([
         tabla, Spacer(1, 12),
         Paragraph("Incluye el nombre de los estudios cobrados y el total de insumos por paciente, con el total general al final. No muestra precios de venta ni cobros individuales.", st["Cen"]),
+        Paragraph("Generado el " + datetime.now().strftime("%d/%m/%Y %H:%M:%S"), st["Cen"]),
+    ])
+    doc.build(story)
+    return str(path)
+
+
+def generar_pdf_reporte_lc(detalles, sucursal, desde, hasta):
+    """Reporte general de ventas LC Lab para imprimir o guardar como PDF."""
+    from xml.sax.saxutils import escape
+
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    path = DOCS_DIR / f"LC_Lab_{desde}_{hasta}_{ts}.pdf"
+    doc = SimpleDocTemplate(str(path), pagesize=letter, rightMargin=1.5*cm,
+                            leftMargin=1.5*cm, topMargin=1.2*cm, bottomMargin=1.2*cm)
+    st = _styles()
+    total_ventas = sum(float(r["total"] or 0) for r in detalles)
+    total_cobrado = sum(float(r["monto_recibido"] or 0) for r in detalles)
+    total_pendiente = sum(max(0.0, float(r["total"] or 0) - float(r["monto_recibido"] or 0)) for r in detalles)
+    total_descuentos = sum(float(r.get("descuento_monto", 0) or 0) for r in detalles)
+    story = [
+        Paragraph("LC LAB", st["Titulo"]),
+        Paragraph("REPORTE DE VENTAS", st["Sub"]),
+        Paragraph("Sucursal: " + escape(str(sucursal)), st["Cen"]),
+        Paragraph("Periodo: " + escape(str(desde)) + " al " + escape(str(hasta)), st["Cen"]),
+        Spacer(1, 8), HRFlowable(width="100%", thickness=1.5, color=AZUL, spaceAfter=8),
+    ]
+    data = [[Paragraph("<b>Folio</b>", st["Cen"]),
+             Paragraph("<b>Fecha</b>", st["Cen"]),
+             Paragraph("<b>Total</b>", st["Cen"]),
+             Paragraph("<b>Descuento</b>", st["Cen"]),
+             Paragraph("<b>Cobrado</b>", st["Cen"]),
+             Paragraph("<b>Estado</b>", st["Cen"])]]
+    for r in detalles:
+        fecha = str(r["fecha_hora"] or "")[:16].replace("T", " ")
+        descuento = float(r.get("descuento_monto", 0) or 0)
+        data.append([
+            Paragraph(escape(str(r["folio"] or "")), st["Sm"]),
+            Paragraph(escape(fecha), st["Sm"]),
+            Paragraph(f"${float(r['total'] or 0):,.2f}", st["Der"]),
+            Paragraph(f"${descuento:,.2f}", st["Der"]),
+            Paragraph(f"${float(r['monto_recibido'] or 0):,.2f}", st["Der"]),
+            Paragraph(escape(str(r["estado_pago"] or "")), st["Sm"]),
+        ])
+    if not detalles:
+        data.append([Paragraph("Sin operaciones confirmadas en el periodo.", st["Sm"]), "", "", "", "", ""])
+    data.append([Paragraph("<b>TOTALES</b>", st["Sm"]), "",
+                 Paragraph(f"<b>${total_ventas:,.2f}</b>", st["Der"]),
+                 Paragraph(f"<b>${total_descuentos:,.2f}</b>", st["Der"]),
+                 Paragraph(f"<b>${total_cobrado:,.2f}</b>", st["Der"]),
+                 ""])
+    tabla = Table(data, repeatRows=1, colWidths=[2.5*cm, 3.1*cm, 2.8*cm, 2.5*cm, 2.8*cm, 2.6*cm])
+    tabla.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), AZUL), ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#aab7b8")),
+        ("ROWBACKGROUNDS", (0, 1), (-1, -2), [colors.white, AZUL_CLARO]),
+        ("BACKGROUND", (0, -1), (-1, -1), AZUL_CLARO), ("SPAN", (0, -1), (1, -1)),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"), ("TOPPADDING", (0, 0), (-1, -1), 5),
+        ("LEFTPADDING", (0, 0), (-1, -1), 5),
+    ]))
+    story.extend([
+        tabla, Spacer(1, 10),
+        Paragraph(f"Total pendiente: <b>${total_pendiente:,.2f}</b>", st["Der"]),
+        Paragraph("Este reporte incluye solo operaciones confirmadas, activas y no canceladas.", st["Cen"]),
         Paragraph("Generado el " + datetime.now().strftime("%d/%m/%Y %H:%M:%S"), st["Cen"]),
     ])
     doc.build(story)
