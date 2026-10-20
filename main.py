@@ -305,6 +305,45 @@ async def registrar_pago(request: Request, venta_id: int = Form(...), monto: flo
     flash(request, f"Pago registrado. Estado: {estado}")
     return RedirectResponse(f"/diario?sucursal_id={venta['sucursal_id']}", status_code=303)
 
+@app.post("/diario/eliminar")
+async def eliminar_operacion(
+    request: Request,
+    venta_id: int = Form(...),
+    sucursal_id: int = Form(...),
+    fecha: str = Form("")
+):
+    user = get_user(request)
+    if not user:
+        return RedirectResponse("/login", status_code=303)
+
+    venta = db.fetchone(
+        "SELECT * FROM ventas WHERE id=? AND sucursal_id=?",
+        (venta_id, sucursal_id)
+    )
+
+    if not venta:
+        flash(request, "La operación no existe en esta sucursal.", "danger")
+    elif venta["estado_pago"] == "CANCELADO":
+        flash(request, "Esta operación ya está cancelada.", "warning")
+    else:
+        db.execute(
+            """UPDATE ventas
+               SET estado_pago='CANCELADO', updated_at=?
+               WHERE id=? AND sucursal_id=?""",
+            (now_iso(), venta_id, sucursal_id)
+        )
+        flash(
+            request,
+            "Operación cancelada. Se conservó el historial de pagos.",
+            "success"
+        )
+
+    destino = f"/diario?sucursal_id={sucursal_id}"
+    if fecha:
+        destino += f"&fecha={fecha}"
+
+    return RedirectResponse(destino, status_code=303)
+
 @app.get("/catalogo", response_class=HTMLResponse)
 async def catalogo(request: Request, sucursal_id: int = 0):
     user = get_user(request)
