@@ -118,13 +118,13 @@ def generar_pdf_venta(venta, detalles, paciente, sucursal, empleado):
 
 
 def generar_pdf_milab(detalles, sucursal, desde, hasta):
-    """PDF MILAB: total de insumos por paciente y total general."""
+    """PDF MILAB: estudios cobrados y total de insumos por paciente."""
     from xml.sax.saxutils import escape
 
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     path = DOCS_DIR / f"MILAB_{desde}_{hasta}_{ts}.pdf"
-    doc = SimpleDocTemplate(str(path), pagesize=letter, rightMargin=1.5*cm,
-                            leftMargin=1.5*cm, topMargin=1.2*cm, bottomMargin=1.2*cm)
+    doc = SimpleDocTemplate(str(path), pagesize=letter, rightMargin=1.2*cm,
+                            leftMargin=1.2*cm, topMargin=1.2*cm, bottomMargin=1.2*cm)
     st = _styles()
     story = [
         Paragraph("LC LAB", st["Titulo"]),
@@ -135,32 +135,38 @@ def generar_pdf_milab(detalles, sucursal, desde, hasta):
         HRFlowable(width="100%", thickness=1.5, color=AZUL, spaceAfter=8),
     ]
 
-    # Agrupa todos los conceptos de cada paciente en un solo importe.
     pacientes = {}
     for r in detalles:
         folio = str(r["folio_paciente"] or "")
         nombre = str(r["paciente"] or "Paciente sin nombre")
         clave = (folio, nombre)
-        pacientes[clave] = pacientes.get(clave, 0.0) + float(r["costo_total"] or 0)
+        if clave not in pacientes:
+            pacientes[clave] = {"total": 0.0, "estudios": []}
+        pacientes[clave]["total"] += float(r["costo_total"] or 0)
+        estudio = str(r["estudio"] or "").strip()
+        if estudio and estudio not in pacientes[clave]["estudios"]:
+            pacientes[clave]["estudios"].append(estudio)
 
     data = [[Paragraph("<b>Paciente</b>", st["Cen"]),
+             Paragraph("<b>Estudios cobrados</b>", st["Cen"]),
              Paragraph("<b>Total de insumos</b>", st["Cen"])]]
     total_general = 0.0
-    for (folio, nombre), total_paciente in sorted(pacientes.items(), key=lambda x: x[0][1].casefold()):
+    for (folio, nombre), info in sorted(pacientes.items(), key=lambda x: x[0][1].casefold()):
         nombre_html = escape(nombre)
         if folio:
             nombre_html += "<br/><font size='8'>Folio: " + escape(folio) + "</font>"
+        estudios_html = "<br/>".join(escape(x) for x in info["estudios"]) or "Sin estudios registrados"
         data.append([Paragraph(nombre_html, st["Sm"]),
-                     Paragraph(f"MXN {total_paciente:,.2f}", st["Der"])])
-        total_general += total_paciente
+                     Paragraph(estudios_html, st["Sm"]),
+                     Paragraph(f"MXN {info['total']:,.2f}", st["Der"])])
+        total_general += info["total"]
 
     if not pacientes:
-        data.append([Paragraph("Sin pacientes registrados en el periodo seleccionado.", st["Sm"]), ""])
-
-    data.append([Paragraph("<b>TOTAL GENERAL</b>", st["Sm"]),
+        data.append([Paragraph("Sin pacientes registrados en el periodo seleccionado.", st["Sm"]), "", ""])
+    data.append([Paragraph("<b>TOTAL GENERAL</b>", st["Sm"]), "",
                  Paragraph(f"<b>MXN {total_general:,.2f}</b>", st["Der"])])
 
-    tabla = Table(data, repeatRows=1, colWidths=[11.5*cm, 6*cm])
+    tabla = Table(data, repeatRows=1, colWidths=[5.2*cm, 8.7*cm, 4.6*cm])
     tabla.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, 0), AZUL),
         ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
@@ -168,14 +174,15 @@ def generar_pdf_milab(detalles, sucursal, desde, hasta):
         ("ROWBACKGROUNDS", (0, 1), (-1, -2), [colors.white, AZUL_CLARO]),
         ("BACKGROUND", (0, -1), (-1, -1), AZUL_CLARO),
         ("BOX", (0, -1), (-1, -1), 0.8, AZUL),
+        ("SPAN", (0, -1), (1, -1)),
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
         ("TOPPADDING", (0, 0), (-1, -1), 7),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
-        ("LEFTPADDING", (0, 0), (-1, -1), 8),
+        ("LEFTPADDING", (0, 0), (-1, -1), 7),
     ]))
     story.extend([
         tabla, Spacer(1, 12),
-        Paragraph("Solo total de insumos por paciente y total general. Sin desglose de estudios, precios de venta ni cobros.", st["Cen"]),
+        Paragraph("Incluye el nombre de los estudios cobrados y el total de insumos por paciente, con el total general al final. No muestra precios de venta ni cobros individuales.", st["Cen"]),
         Paragraph("Generado el " + datetime.now().strftime("%d/%m/%Y %H:%M:%S"), st["Cen"]),
     ])
     doc.build(story)
