@@ -8,21 +8,21 @@
     <div class="mb-2">
       <label class="form-label small">Sucursal</label>
       <select name="sucursal_id" class="form-select form-select-sm" required>
-        {% for s in sucursales %}<option value="{{ s.id }}">{{ s.nombre }}</option>{% endfor %}
+        {% for s in sucursales %}<option value="{{ s.id }}" {% if s.id == sel_sucursal|default(0)|int %}selected{% endif %}>{{ s.nombre }}</option>{% endfor %}
       </select>
     </div>
     <div class="mb-2">
       <label class="form-label small">Tipo de reporte</label>
       <select name="tipo" class="form-select form-select-sm">
-        <option value="LC Lab">LC Lab</option>
-        <option value="MILAB">MILAB</option>
+        <option value="LC Lab" {% if sel_tipo|default("") == "LC Lab" %}selected{% endif %}>LC Lab</option>
+        <option value="MILAB" {% if sel_tipo|default("") == "MILAB" %}selected{% endif %}>MILAB</option>
       </select>
     </div>
     <div class="row g-2 mb-2">
       <div class="col"><label class="form-label small">Desde</label>
-        <input type="date" name="desde" class="form-control form-control-sm" required></div>
+        <input type="date" name="desde" value="{{ sel_desde|default('') }}" class="form-control form-control-sm" required></div>
       <div class="col"><label class="form-label small">Hasta</label>
-        <input type="date" name="hasta" class="form-control form-control-sm" required></div>
+        <input type="date" name="hasta" value="{{ sel_hasta|default('') }}" class="form-control form-control-sm" required></div>
     </div>
     <div class="mb-3">
       <label class="form-label small">Código de autorización</label>
@@ -32,6 +32,36 @@
     <p class="text-muted small mt-2 mb-0">MILAB: PDF con el total de insumos por paciente y el total general.</p>
   </form>
 </div>
+{% if revision_milab %}
+<div class="card card-lc p-3 mb-3">
+  <h5 style="color:#1a5276">Verificación antes de imprimir — MILAB</h5>
+  <p class="mb-1">Sucursal: <strong>{{ revision_milab.sucursal }}</strong></p>
+  <p class="mb-1">Periodo: <strong>{{ revision_milab.desde }} al {{ revision_milab.hasta }}</strong></p>
+  <p class="mb-2">Pacientes: <strong>{{ revision_milab.pacientes }}</strong> · Renglones de estudios: <strong>{{ revision_milab.detalles|length }}</strong> · Total de insumos: <strong>{{ revision_milab.total_insumos | money }}</strong></p>
+  <div class="table-responsive">
+    <table class="table table-sm table-lc">
+      <thead><tr><th>Fecha y hora</th><th>Folio venta</th><th>Paciente</th><th>Estudio cobrado</th><th>Estado</th><th>Total insumos</th></tr></thead>
+      <tbody>
+      {% for r in revision_milab.detalles %}
+        <tr><td>{{ r.fecha_hora }}</td><td>{{ r.folio }}</td><td>{{ r.paciente }}</td><td>{{ r.estudio }}</td><td>Activa / no cancelada</td><td>{{ r.costo_total | money }}</td></tr>
+      {% else %}
+        <tr><td colspan="6" class="text-center text-muted">No hay ventas válidas en el periodo.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div class="alert alert-warning small mb-2">Revisa cada paciente y estudio. Si aparece Dorely u otra operación incorrecta, no confirmes el PDF; primero corrige o retira la venta en Registro Diario y vuelve a generar la vista previa.</div>
+  <form method="post" action="/reportes/generar">
+    <input type="hidden" name="sucursal_id" value="{{ sel_sucursal }}">
+    <input type="hidden" name="tipo" value="MILAB">
+    <input type="hidden" name="desde" value="{{ sel_desde }}">
+    <input type="hidden" name="hasta" value="{{ sel_hasta }}">
+    <input type="hidden" name="codigo" value="{{ sel_codigo }}">
+    <input type="hidden" name="confirmar_pdf" value="1">
+    <button type="submit" class="btn btn-success btn-sm"><i class="bi bi-check-circle"></i> Confirmar y generar PDF</button>
+  </form>
+</div>
+{% endif %}
 {% if resultado %}
 <div class="card card-lc p-3">
   <h5 style="color:#1a5276">Reporte {{ resultado.tipo }} — {{ resultado.sucursal }}</h5>
