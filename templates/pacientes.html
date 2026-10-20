@@ -1,5 +1,129 @@
 {% extends "base.html" %}
-{% block title %}Pacientes — LC Lab{% endblock %}
+{% block title %}Pacientes — LC Lab
+<!-- Ficha completa del paciente -->
+<div class="modal fade" id="modalDatosPaciente" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-person-vcard me-2"></i>Datos del paciente</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body" id="contenidoDatosPaciente">
+        <div class="text-center py-4"><div class="spinner-border text-primary" role="status"></div><div class="small mt-2">Cargando datos…</div></div>
+      </div>
+      <div class="modal-footer"><button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cerrar</button></div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const modalPaciente = () => bootstrap.Modal.getOrCreateInstance(document.getElementById('modalDatosPaciente'));
+function textoSeguro(valor) {
+  if (valor === null || valor === undefined || String(valor).trim() === '') return '—';
+  return String(valor);
+}
+function campoPaciente(etiqueta, valor) {
+  const cont = document.createElement('div');
+  cont.className = 'col-sm-6 col-lg-4 mb-3';
+  const label = document.createElement('div');
+  label.className = 'small text-muted';
+  label.textContent = etiqueta;
+  const dato = document.createElement('div');
+  dato.className = 'fw-semibold text-break';
+  dato.textContent = textoSeguro(valor);
+  cont.append(label, dato);
+  return cont;
+}
+async function verDatosPaciente(id) {
+  const cont = document.getElementById('contenidoDatosPaciente');
+  cont.replaceChildren();
+  const cargando = document.createElement('div');
+  cargando.className = 'text-center py-4';
+  cargando.textContent = 'Cargando datos del paciente…';
+  cont.appendChild(cargando);
+  modalPaciente().show();
+  try {
+    const respuesta = await fetch('/api/pacientes/' + encodeURIComponent(id), {headers: {'Accept':'application/json'}});
+    if (!respuesta.ok) throw new Error(respuesta.status === 404 ? 'No se encontró el paciente.' : 'No fue posible cargar los datos.');
+    const p = await respuesta.json();
+    cont.replaceChildren();
+    const encabezado = document.createElement('div');
+    encabezado.className = 'alert alert-primary py-2';
+    encabezado.textContent = (p.nombre_completo || 'Paciente') + ' · Folio: ' + textoSeguro(p.folio);
+    cont.appendChild(encabezado);
+    const grid = document.createElement('div');
+    grid.className = 'row';
+    [
+      ['Nombre completo',p.nombre_completo],['Folio',p.folio],['Teléfono',p.telefono],
+      ['Edad',p.edad],['Sexo',p.sexo],['Fecha de nacimiento',p.fecha_nacimiento],
+      ['Sucursal',p.sucursal],['Empleado que registró',p.empleado_registro],
+      ['Fecha de registro',p.fecha_registro],['Entrega de resultados',p.fecha_entrega_resultados],
+      ['Modalidad de entrega',p.modalidad_entrega],['Observaciones',p.observaciones]
+    ].forEach(([etiqueta,valor]) => grid.appendChild(campoPaciente(etiqueta,valor)));
+    cont.appendChild(grid);
+  } catch (error) {
+    cont.replaceChildren();
+    const aviso = document.createElement('div');
+    aviso.className = 'alert alert-danger mb-0';
+    aviso.textContent = error.message || 'Ocurrió un error al cargar el paciente.';
+    cont.appendChild(aviso);
+  }
+}
+(function() {
+  const input = document.getElementById('buscarPacienteLive');
+  const resultados = document.getElementById('resultadosBusquedaPaciente');
+  const estado = document.getElementById('estadoBusquedaPaciente');
+  let temporizador;
+  let peticionActual = 0;
+  if (!input || !resultados) return;
+  input.addEventListener('input', () => {
+    clearTimeout(temporizador);
+    const q = input.value.trim();
+    resultados.replaceChildren();
+    if (!q) {
+      estado.textContent = 'Escribe al menos una letra para buscar en todos los pacientes registrados.';
+      return;
+    }
+    estado.textContent = 'Buscando…';
+    temporizador = setTimeout(async () => {
+      const numeroPeticion = ++peticionActual;
+      try {
+        const resp = await fetch('/api/pacientes/buscar?q=' + encodeURIComponent(q), {headers: {'Accept':'application/json'}});
+        if (!resp.ok) throw new Error('No fue posible buscar pacientes.');
+        const pacientes = await resp.json();
+        if (numeroPeticion !== peticionActual) return;
+        resultados.replaceChildren();
+        estado.textContent = pacientes.length ? 'Selecciona un paciente para ver su ficha completa.' : 'No se encontraron pacientes.';
+        pacientes.forEach(p => {
+          const boton = document.createElement('button');
+          boton.type = 'button';
+          boton.className = 'list-group-item list-group-item-action d-flex justify-content-between align-items-center gap-2';
+          const texto = document.createElement('span');
+          texto.className = 'text-start';
+          const nombre = document.createElement('strong');
+          nombre.className = 'd-block';
+          nombre.textContent = p.nombre_completo || 'Sin nombre';
+          const detalle = document.createElement('small');
+          detalle.className = 'text-muted';
+          detalle.textContent = 'Folio: ' + textoSeguro(p.folio) + ' · Teléfono: ' + textoSeguro(p.telefono) + ' · Sucursal: ' + textoSeguro(p.sucursal);
+          texto.append(nombre,detalle);
+          const accion = document.createElement('span');
+          accion.className = 'btn btn-sm btn-outline-primary flex-shrink-0';
+          accion.textContent = 'Ver ficha';
+          boton.append(texto,accion);
+          boton.addEventListener('click', () => verDatosPaciente(p.id));
+          resultados.appendChild(boton);
+        });
+      } catch (error) {
+        estado.textContent = error.message || 'Error al buscar pacientes.';
+      }
+    }, 250);
+  });
+})();
+</script>
+{% endblock %}
 {% block content %}
 <h4 class="mb-3" style="color:#1a5276">Registro de Pacientes</h4>
 <div class="card card-lc p-3 mb-3">
@@ -59,14 +183,17 @@
   </form>
 </div>
 <div class="card card-lc p-3">
-  <form method="get" class="mb-2 d-flex gap-2">
-    <input type="text" name="q" value="{{ q }}" class="form-control form-control-sm" style="max-width:250px" placeholder="Buscar nombre, folio, teléfono">
-    <button class="btn btn-sm btn-outline-secondary">Buscar</button>
-  </form>
+  <div class="mb-3">
+    <label for="buscarPacienteLive" class="form-label small fw-semibold">Buscar paciente por nombre, folio o teléfono</label>
+    <input type="search" id="buscarPacienteLive" class="form-control" autocomplete="off"
+           placeholder="Empieza a escribir el nombre del paciente…">
+    <div id="estadoBusquedaPaciente" class="form-text">Escribe al menos una letra para buscar en todos los pacientes registrados.</div>
+    <div id="resultadosBusquedaPaciente" class="list-group mt-2"></div>
+  </div>
   <div class="table-responsive">
     <table class="table table-sm table-hover table-lc">
       <thead><tr>
-        <th>Folio</th><th>Nombre</th><th>Edad</th><th>Sexo</th><th>Teléfono</th><th>Sucursal</th><th>Registro</th>
+        <th>Folio</th><th>Nombre</th><th>Edad</th><th>Sexo</th><th>Teléfono</th><th>Sucursal</th><th>Registro</th><th>Ficha</th>
       </tr></thead>
       <tbody>
         {% for p in pacientes %}
@@ -77,10 +204,10 @@
           <td>{{ p.sexo or '—' }}</td>
           <td>{{ p.telefono or '—' }}</td>
           <td>{{ p.sucursal }}</td>
-          <td>{{ p.fecha_registro | dt }}</td>
+          <td>{{ p.fecha_registro | dt }}</td>\n          <td><button type="button" class="btn btn-sm btn-outline-primary" onclick="verDatosPaciente({{ p.id }})">Ver datos</button></td>
         </tr>
         {% else %}
-        <tr><td colspan="7" class="text-muted text-center">Sin pacientes</td></tr>
+        <tr><td colspan="8" class="text-muted text-center">Sin pacientes</td></tr>
         {% endfor %}
       </tbody>
     </table>
