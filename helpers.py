@@ -1,6 +1,15 @@
 """Utilidades LC Lab Web"""
 from datetime import datetime, date
+from zoneinfo import ZoneInfo
 import re
+
+# Zona horaria oficial de Mexicali, Baja California.
+ZONA_HORARIA = ZoneInfo("America/Tijuana")
+
+
+def ahora_local():
+    return datetime.now(ZONA_HORARIA)
+
 
 METODOS_PAGO = ["Efectivo", "Transferencia", "Tarjeta", "Otro"]
 ESTADOS_PAGO = ["PENDIENTE", "PARCIAL", "PAGADO", "CANCELADO"]
@@ -10,11 +19,11 @@ ROLES = ["Administrador", "Encargado de sucursal", "Recepcionista", "Laboratoris
 
 
 def now_iso():
-    return datetime.now().isoformat(timespec="seconds")
+    return ahora_local().isoformat(timespec="seconds")
 
 
 def today_str():
-    return date.today().isoformat()
+    return ahora_local().date().isoformat()
 
 
 def format_money(v):
@@ -42,7 +51,10 @@ def format_dt(iso):
     if not iso:
         return ""
     try:
-        return datetime.fromisoformat(iso).strftime("%d/%m/%Y %H:%M")
+        valor = datetime.fromisoformat(iso)
+        if valor.tzinfo is not None:
+            valor = valor.astimezone(ZONA_HORARIA)
+        return valor.strftime("%d/%m/%Y %H:%M")
     except Exception:
         return str(iso)[:19]
 
