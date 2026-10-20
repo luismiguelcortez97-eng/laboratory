@@ -123,7 +123,7 @@ def generar_pdf_venta(venta, detalles, paciente, sucursal, empleado, observacion
     nota = str(observaciones or venta.get("observaciones") or "").strip()
     if nota:
         from xml.sax.saxutils import escape
-        nota_html = escape(nota).replace("\\n", "<br/>")
+        nota_html = escape(nota).replace("\n", "<br/>")
         bloque_nota = [
             Paragraph("Notas / Observaciones", st["Sec"]),
             Paragraph(nota_html, st["Sm"]),
