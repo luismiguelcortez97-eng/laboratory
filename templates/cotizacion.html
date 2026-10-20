@@ -141,9 +141,12 @@
       </table>
     </div>
 
-    <div class="text-end fw-bold fs-5" style="color:#1a5276">
-      TOTAL:
-      <span id="totalLabel">$0.00</span>
+    <div class="row justify-content-end mt-2">
+      <div class="col-md-5">
+        <div class="d-flex justify-content-between"><span>Subtotal:</span><strong id="subtotalLabel">$0.00</strong></div>
+        <div class="d-flex justify-content-between"><span>Descuento (<span id="descuentoPorcentajeLabel">0</span>%):</span><strong id="descuentoMontoLabel">−$0.00</strong></div>
+        <div class="d-flex justify-content-between fs-5 mt-1" style="color:#1a5276"><strong>TOTAL:</strong><strong id="totalLabel">$0.00</strong></div>
+      </div>
     </div>
   </div>
 
@@ -165,16 +168,16 @@
       </div>
 
       <div class="col-md-3">
-        <label for="monto_recibido" class="form-label small">
-          Monto recibido
-        </label>
-        <input type="number"
-               name="monto_recibido"
-               id="monto_recibido"
-               class="form-control form-control-sm"
-               value="0"
-               step="0.01"
-               min="0">
+        <label for="descuento_porcentaje" class="form-label small">Descuento (%)</label>
+        <input type="number" name="descuento_porcentaje" id="descuento_porcentaje"
+               class="form-control form-control-sm" value="0" step="0.01" min="0" max="100">
+        <small class="text-muted">Se aplica al subtotal.</small>
+      </div>
+      <div class="col-md-3">
+        <label for="monto_recibido" class="form-label small">Monto recibido</label>
+        <input type="number" name="monto_recibido" id="monto_recibido"
+               class="form-control form-control-sm" value="" placeholder="Escribe el monto"
+               step="0.01" min="0">
       </div>
 
       <div class="col-md-3">
@@ -421,6 +424,10 @@ function quitar(indice) {
 function renderPartidas() {
   const tbody = document.querySelector("#tablaPartidas tbody");
   const totalLabel = document.getElementById("totalLabel");
+  const subtotalLabel = document.getElementById("subtotalLabel");
+  const descuentoMontoLabel = document.getElementById("descuentoMontoLabel");
+  const descuentoPorcentajeLabel = document.getElementById("descuentoPorcentajeLabel");
+  const descuentoInput = document.getElementById("descuento_porcentaje");
 
   tbody.replaceChildren();
 
@@ -490,7 +497,14 @@ function renderPartidas() {
     tbody.appendChild(fila);
   }
 
-  totalLabel.textContent = formatoDinero(total);
+  const subtotal = Number(total.toFixed(2));
+  const porcentaje = Math.min(100, Math.max(0, Number(descuentoInput.value || 0)));
+  const descuento = Number((subtotal * porcentaje / 100).toFixed(2));
+  const totalFinal = Number(Math.max(0, subtotal - descuento).toFixed(2));
+  subtotalLabel.textContent = formatoDinero(subtotal);
+  descuentoPorcentajeLabel.textContent = porcentaje.toLocaleString("es-MX");
+  descuentoMontoLabel.textContent = "−" + formatoDinero(descuento);
+  totalLabel.textContent = formatoDinero(totalFinal);
 }
 
 document.addEventListener("DOMContentLoaded", () => {
@@ -498,6 +512,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const formulario = document.getElementById("formCot");
 
   buscador.addEventListener("input", filtrarEstudios);
+  document.getElementById("descuento_porcentaje").addEventListener("input", renderPartidas);
 
   formulario.addEventListener("submit", evento => {
     if (partidas.length === 0) {
