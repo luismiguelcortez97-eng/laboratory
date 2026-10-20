@@ -277,6 +277,8 @@ async def cotizacion_guardar(request: Request):
         estado, monto = "COTIZACION", 0.0
     elif estado_deseado == "PENDIENTE":
         estado, monto = "PENDIENTE", 0.0
+    elif estado_deseado == "PAGADO":
+        estado, monto = "PAGADO", total
     elif monto >= total - 0.01:
         estado = "PAGADO"
         monto = monto if monto > 0 else total
