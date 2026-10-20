@@ -687,7 +687,17 @@ async def reportes_generar(request: Request, sucursal_id: int = Form(...), tipo:
         "SELECT fecha, venta_ids FROM cierres_diarios WHERE sucursal_id=? AND fecha BETWEEN ? AND ? ORDER BY fecha",
         (sucursal_id, desde, hasta)
     )
-    ids_confirmados = [
+
+    # Compatibilidad: incluir tanto las ventas confirmadas individualmente como
+    # las incluidas en cierres diarios anteriores a la columna confirmado.
+    # Cada ID se vuelve a validar por sucursal, fecha, estado y activo más abajo.
+    ids_desde_cierres = set()
+    for cierre in cierres:
+        for id_texto in (cierre["venta_ids"] or "").split(","):
+            if id_texto.strip().isdigit():
+                ids_desde_cierres.add(int(id_texto.strip()))
+
+    ids_por_marca = {
         int(row["id"]) for row in db.fetchall(
             """SELECT id FROM ventas
                WHERE sucursal_id=? AND date(fecha_hora) BETWEEN ? AND ?
@@ -697,7 +707,23 @@ async def reportes_generar(request: Request, sucursal_id: int = Form(...), tipo:
                ORDER BY fecha_hora, id""",
             (sucursal_id, desde, hasta)
         )
-    ]
+    }
+    ids_candidatos = ids_desde_cierres | ids_por_marca
+    ids_confirmados = []
+    if ids_candidatos:
+        placeholders_candidatos = ",".join("?" for _ in ids_candidatos)
+        ids_confirmados = [
+            int(row["id"]) for row in db.fetchall(
+                f"""SELECT id FROM ventas
+                    WHERE sucursal_id=? AND date(fecha_hora) BETWEEN ? AND ?
+                      AND id IN ({placeholders_candidatos})
+                      AND COALESCE(activo, 0)=1
+                      AND UPPER(TRIM(COALESCE(estado_pago, ''))) NOT IN
+                          ('COTIZACION', 'CANCELADO', 'CANCELADA', 'CANCELLED', 'CANCEL', 'ANULADO', 'ANULADA')
+                    ORDER BY fecha_hora, id""",
+                [sucursal_id, desde, hasta] + sorted(ids_candidatos)
+            )
+        ]
 
     if tipo.strip().upper() == "MILAB":
         detalles = []
