@@ -795,6 +795,7 @@ async def reportes_generar(request: Request, sucursal_id: int = Form(...), tipo:
                   AND UPPER(TRIM(COALESCE(v.estado_pago, ''))) NOT IN
                       ('COTIZACION', 'CANCELADO', 'CANCELADA', 'CANCELLED', 'CANCEL', 'ANULADO', 'ANULADA')
                 ORDER BY v.fecha_hora""", [sucursal_id, desde, hasta] + ids_confirmados)
+    rows = [dict(r) for r in rows]
     pdf_path = generar_pdf_reporte_lc(rows, sucursal, desde, hasta)
     return FileResponse(path=pdf_path, filename=f"LC_Lab_{desde}_{hasta}.pdf",
                         media_type="application/pdf", content_disposition_type="inline")
