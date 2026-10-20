@@ -344,7 +344,7 @@ async def cotizacion_guardar(request: Request):
         pac = db.fetchone("SELECT * FROM pacientes WHERE id=?", (paciente_id,))
         suc = db.fetchone("SELECT nombre FROM sucursales WHERE id=?", (sucursal_id,))
         emp = db.fetchone("SELECT nombre_completo FROM empleados WHERE id=?", (empleado_id,))
-        pdf_path = generar_pdf_venta(dict(venta), partidas, dict(pac), suc["nombre"], emp["nombre_completo"] if emp else "")
+        pdf_path = generar_pdf_venta(dict(venta), partidas, dict(pac), suc["nombre"], emp["nombre_completo"] if emp else "", observaciones=(form.get("observaciones") or "").strip())
         db.execute("UPDATE ventas SET pdf_path=? WHERE id=?", (pdf_path, venta_id))
     except Exception as e:
         print("PDF:", e)
