@@ -798,8 +798,8 @@ async def reportes_generar(request: Request, sucursal_id: int = Form(...), tipo:
             placeholders = ",".join("?" for _ in ids_confirmados)
             detalles = db.fetchall(
                 f"""SELECT v.id AS venta_id, v.folio, v.fecha_hora, p.folio AS folio_paciente,
-                           p.nombre_completo AS paciente, vd.clave, vd.nombre AS estudio,
-                           vd.cantidad, vd.costo_unitario,
+                           p.nombre_completo AS paciente, p.fecha_nacimiento, p.edad, p.telefono,
+                           vd.clave, vd.nombre AS estudio, vd.cantidad, vd.costo_unitario,
                            (vd.cantidad * vd.costo_unitario) AS costo_total
                     FROM ventas v
                     JOIN pacientes p ON p.id=v.paciente_id
@@ -828,9 +828,11 @@ async def reportes_generar(request: Request, sucursal_id: int = Form(...), tipo:
     if ids_confirmados:
         placeholders = ",".join("?" for _ in ids_confirmados)
         rows = db.fetchall(
-            f"""SELECT v.folio, v.fecha_hora, v.total, v.monto_recibido, v.estado_pago, v.metodo_pago
-                       , v.descuento_porcentaje, v.descuento_monto
+            f"""SELECT v.folio, v.fecha_hora, v.total, v.monto_recibido, v.estado_pago, v.metodo_pago,
+                       v.descuento_porcentaje, v.descuento_monto,
+                       p.nombre_completo AS paciente, p.fecha_nacimiento, p.edad, p.telefono
                 FROM ventas v
+                LEFT JOIN pacientes p ON p.id=v.paciente_id
                 WHERE v.sucursal_id=? AND date(v.fecha_hora) BETWEEN ? AND ?
                   AND v.id IN ({placeholders})
                   AND COALESCE(v.activo, 0)=1
