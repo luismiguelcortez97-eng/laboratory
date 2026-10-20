@@ -1,6 +1,71 @@
 
 {% extends "base.html" %}
-{% block title %}Registro Diario — LC Lab{% endblock %}
+{% block title %}Registro Diario — LC Lab
+<!-- Ventana con los datos completos del paciente -->
+<div class="modal fade" id="modalDatosPacienteDiario" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-person-vcard me-2"></i>Datos del paciente</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body" id="contenidoDatosPacienteDiario">
+        <div class="text-center py-4">Cargando datos del paciente…</div>
+      </div>
+      <div class="modal-footer"><button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cerrar</button></div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+async function verDatosPacienteDiario(id) {
+  const modalEl = document.getElementById('modalDatosPacienteDiario');
+  const cont = document.getElementById('contenidoDatosPacienteDiario');
+  cont.textContent = 'Cargando datos del paciente…';
+  bootstrap.Modal.getOrCreateInstance(modalEl).show();
+  try {
+    const resp = await fetch('/api/pacientes/' + encodeURIComponent(id), {headers: {'Accept':'application/json'}});
+    if (!resp.ok) throw new Error(resp.status === 404 ? 'No se encontró el paciente.' : 'No fue posible cargar los datos.');
+    const p = await resp.json();
+    cont.replaceChildren();
+    const titulo = document.createElement('div');
+    titulo.className = 'alert alert-primary py-2';
+    titulo.textContent = (p.nombre_completo || 'Paciente') + ' · Folio: ' + (p.folio || '—');
+    cont.appendChild(titulo);
+    const grid = document.createElement('div');
+    grid.className = 'row';
+    const campos = [
+      ['Nombre completo',p.nombre_completo],['Folio',p.folio],['Teléfono',p.telefono],
+      ['Edad',p.edad],['Sexo',p.sexo],['Fecha de nacimiento',p.fecha_nacimiento],
+      ['Sucursal',p.sucursal],['Empleado que registró',p.empleado_registro],
+      ['Fecha de registro',p.fecha_registro],['Entrega de resultados',p.fecha_entrega_resultados],
+      ['Modalidad de entrega',p.modalidad_entrega],['Observaciones',p.observaciones]
+    ];
+    campos.forEach(([etiqueta,valor]) => {
+      const col = document.createElement('div');
+      col.className = 'col-sm-6 col-lg-4 mb-3';
+      const label = document.createElement('div');
+      label.className = 'small text-muted';
+      label.textContent = etiqueta;
+      const dato = document.createElement('div');
+      dato.className = 'fw-semibold text-break';
+      dato.textContent = valor === null || valor === undefined || String(valor).trim() === '' ? '—' : String(valor);
+      col.append(label,dato);
+      grid.appendChild(col);
+    });
+    cont.appendChild(grid);
+  } catch (error) {
+    cont.replaceChildren();
+    const aviso = document.createElement('div');
+    aviso.className = 'alert alert-danger mb-0';
+    aviso.textContent = error.message || 'Ocurrió un error al cargar los datos.';
+    cont.appendChild(aviso);
+  }
+}
+</script>
+{% endblock %}
 
 {% block content %}
 
@@ -186,6 +251,12 @@
 
           <td class="text-nowrap">
 
+
+<button type="button"
+   class="btn btn-sm btn-outline-primary py-1 mb-1"
+   onclick="verDatosPacienteDiario({{ o.paciente_id }})">
+  <i class="bi bi-person-vcard"></i> Ver datos del paciente
+</button>
 
 <!-- Imprimir cotización individual -->
 <a href="/pdf/{{ o.id }}"
