@@ -15,7 +15,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from database import db, DOCS_DIR, verify_password, hash_password
 from helpers import (
     now_iso, today_str, format_money, safe_float, safe_int,
-    format_dt, calcular_margen, METODOS_PAGO, ESTADOS_PAGO, SEXOS, PUESTOS
+    format_dt, calcular_margen, METODOS_PAGO, ESTADOS_PAGO, SEXOS, PUESTOS, ahora_local
 )
 from pdf_gen import generar_pdf_venta, generar_pdf_milab, generar_pdf_reporte_lc
 
@@ -811,7 +811,7 @@ async def balance_page(request: Request, fecha: str = "", modo: str = "diario"):
     try:
         d = date.fromisoformat(fecha)
     except Exception:
-        d = date.today()
+        d = ahora_local().date()
     if modo == "semanal":
         inicio = d - timedelta(days=d.weekday())
         fin = inicio + timedelta(days=6)
@@ -853,7 +853,7 @@ async def costos_page(request: Request, sucursal_id: str = "", desde: str = "", 
     user = get_user(request)
     if not user:
         return RedirectResponse("/login", status_code=303)
-    desde = desde or date.today().replace(day=1).isoformat()
+    desde = desde or ahora_local().date().replace(day=1).isoformat()
     hasta = hasta or today_str()
     sql = """SELECT vd.clave, vd.nombre, vd.precio_unitario, vd.costo_unitario, SUM(vd.cantidad) as cant,
         SUM(vd.importe) as ingresos, SUM(vd.cantidad * vd.costo_unitario) as costos
