@@ -40,12 +40,12 @@
   <p class="mb-2">Pacientes: <strong>{{ revision_milab.pacientes }}</strong> · Renglones de estudios: <strong>{{ revision_milab.detalles|length }}</strong> · Total de insumos: <strong>{{ revision_milab.total_insumos | money }}</strong></p>
   <div class="table-responsive">
     <table class="table table-sm table-lc">
-      <thead><tr><th>Fecha y hora</th><th>Folio venta</th><th>Paciente</th><th>Estudio cobrado</th><th>Estado</th><th>Total insumos</th></tr></thead>
+      <thead><tr><th>Fecha y hora</th><th>Folio venta</th><th>Paciente</th><th>Fecha nacimiento</th><th>Edad</th><th>Celular</th><th>Estudio cobrado</th><th>Estado</th><th>Total insumos</th></tr></thead>
       <tbody>
       {% for r in revision_milab.detalles %}
-        <tr><td>{{ r.fecha_hora }}</td><td>{{ r.folio }}</td><td>{{ r.paciente }}</td><td>{{ r.estudio }}</td><td>Activa / no cancelada</td><td>{{ r.costo_total | money }}</td></tr>
+        <tr><td>{{ r.fecha_hora }}</td><td>{{ r.folio }}</td><td>{{ r.paciente }}</td><td>{{ r.fecha_nacimiento or '—' }}</td><td>{{ r.edad or '—' }}</td><td>{{ r.telefono or '—' }}</td><td>{{ r.estudio }}</td><td>Activa / no cancelada</td><td>{{ r.costo_total | money }}</td></tr>
       {% else %}
-        <tr><td colspan="6" class="text-center text-muted">No hay ventas válidas en el periodo.</td></tr>
+        <tr><td colspan="9" class="text-center text-muted">No hay ventas válidas en el periodo.</td></tr>
       {% endfor %}
       </tbody>
     </table>
