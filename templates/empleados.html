@@ -1,52 +1,101 @@
 {% extends "base.html" %}
 {% block title %}Empleados — LC Lab{% endblock %}
 {% block content %}
-<h4 class="mb-3" style="color:#1a5276">Administración de Empleados</h4>
+<h4 class="mb-3" style="color:#1a5276">Administración de Empleados y Usuarios</h4>
+<p class="text-muted small">Solo el administrador puede crear empleados, administrar sus cuentas y cambiar sus contraseñas o permisos.</p>
 <div class="card card-lc p-3 mb-3">
-  <form method="post" action="/empleados/guardar" class="row g-2">
+  <form method="post" action="/empleados/guardar" class="row g-2" autocomplete="off">
     <input type="hidden" name="empleado_id" id="emp_id" value="">
     <div class="col-md-5">
       <label class="form-label small">Nombre completo *</label>
       <input type="text" name="nombre_completo" id="emp_nombre" class="form-control form-control-sm" required>
     </div>
-    <div class="col-md-4">
+    <div class="col-md-3">
       <label class="form-label small">Puesto *</label>
-      <select name="puesto" id="emp_puesto" class="form-select form-select-sm">
+      <select name="puesto" id="emp_puesto" class="form-select form-select-sm" required>
         {% for p in puestos %}<option value="{{ p }}">{{ p }}</option>{% endfor %}
       </select>
     </div>
-    <div class="col-md-3 d-flex align-items-end">
-      <button type="submit" class="btn btn-lc btn-sm">Guardar</button>
+    <div class="col-md-4">
+      <label class="form-label small">Nombre de usuario *</label>
+      <input type="text" name="username" id="emp_username" class="form-control form-control-sm" minlength="3" required autocomplete="off">
+    </div>
+    <div class="col-md-4">
+      <label class="form-label small">Contraseña <span id="password_hint">(mínimo 6 caracteres)</span></label>
+      <input type="password" name="password" id="emp_password" class="form-control form-control-sm" minlength="6" autocomplete="new-password">
+      <div class="form-text">Al editar, déjala vacía para conservar la contraseña actual.</div>
+    </div>
+    <div class="col-md-4">
+      <label class="form-label small">Nivel de acceso *</label>
+      <select name="rol_usuario" id="emp_rol" class="form-select form-select-sm" required>
+        <option value="Recepcionista">Recepcionista</option>
+        <option value="Administrador">Administrador</option>
+      </select>
+    </div>
+    <div class="col-md-4 d-flex align-items-end gap-2">
+      <button type="submit" class="btn btn-lc btn-sm" id="emp_submit">Crear empleado y usuario</button>
+      <button type="button" class="btn btn-outline-secondary btn-sm" onclick="limpiarEmp()">Limpiar</button>
     </div>
   </form>
 </div>
 <div class="card card-lc p-3">
-  <table class="table table-sm table-hover table-lc">
-    <thead><tr><th>Nombre</th><th>Puesto</th><th>Fecha alta</th><th>Estado</th><th></th></tr></thead>
-    <tbody>
-      {% for e in empleados %}
-      <tr>
-        <td>{{ e.nombre_completo }}</td>
-        <td>{{ e.puesto }}</td>
-        <td>{{ e.fecha_alta or '—' }}</td>
-        <td>{% if e.activo %}<span class="badge bg-success">Activo</span>{% else %}<span class="badge bg-secondary">Inactivo</span>{% endif %}</td>
-        <td>
-          <button class="btn btn-sm btn-outline-primary py-0" onclick="editarEmp({{ e.id }},'{{ e.nombre_completo }}','{{ e.puesto }}')">Editar</button>
-          <form method="post" action="/empleados/toggle" class="d-inline">
-            <input type="hidden" name="empleado_id" value="{{ e.id }}">
-            <button class="btn btn-sm btn-outline-secondary py-0">{% if e.activo %}Desactivar{% else %}Reactivar{% endif %}</button>
-          </form>
-        </td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
+  <div class="table-responsive">
+    <table class="table table-sm table-hover table-lc">
+      <thead><tr><th>Nombre</th><th>Puesto</th><th>Usuario</th><th>Acceso</th><th>Estado</th><th>Fecha alta</th><th>Acciones</th></tr></thead>
+      <tbody>
+        {% for e in empleados %}
+        <tr>
+          <td>{{ e.nombre_completo }}</td>
+          <td>{{ e.puesto }}</td>
+          <td>{{ e.username or 'Sin usuario' }}</td>
+          <td>{{ e.rol_usuario or 'Sin acceso' }}</td>
+          <td>
+            {% if e.activo %}<span class="badge bg-success">Empleado activo</span>{% else %}<span class="badge bg-secondary">Empleado inactivo</span>{% endif %}
+            {% if e.username %}{% if e.usuario_activo %}<span class="badge bg-success">Acceso activo</span>{% else %}<span class="badge bg-secondary">Acceso inactivo</span>{% endif %}{% endif %}
+          </td>
+          <td>{{ e.fecha_alta or '—' }}</td>
+          <td class="text-nowrap">
+            <button type="button" class="btn btn-sm btn-outline-primary py-0"
+              data-id="{{ e.id }}" data-nombre="{{ e.nombre_completo }}" data-puesto="{{ e.puesto }}"
+              data-username="{{ e.username or '' }}" data-rol="{{ e.rol_usuario or 'Recepcionista' }}"
+              onclick="editarEmp(this)">Editar / acceso</button>
+            <form method="post" action="/empleados/toggle" class="d-inline" onsubmit="return confirm('¿Cambiar el estado del empleado y su cuenta de acceso?')">
+              <input type="hidden" name="empleado_id" value="{{ e.id }}">
+              <button class="btn btn-sm btn-outline-secondary py-0">{% if e.activo %}Desactivar{% else %}Reactivar{% endif %}</button>
+            </form>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="7" class="text-center text-muted">No hay empleados registrados.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
 </div>
 <script>
-function editarEmp(id, nombre, puesto) {
-  document.getElementById('emp_id').value = id;
-  document.getElementById('emp_nombre').value = nombre;
-  document.getElementById('emp_puesto').value = puesto;
+function editarEmp(btn) {
+  document.getElementById('emp_id').value = btn.dataset.id;
+  document.getElementById('emp_nombre').value = btn.dataset.nombre;
+  document.getElementById('emp_puesto').value = btn.dataset.puesto;
+  document.getElementById('emp_username').value = btn.dataset.username;
+  document.getElementById('emp_rol').value = btn.dataset.rol;
+  document.getElementById('emp_password').value = '';
+  document.getElementById('emp_password').required = !btn.dataset.username;
+  document.getElementById('emp_username').required = true;
+  document.getElementById('emp_submit').textContent = 'Guardar cambios';
+  document.getElementById('password_hint').textContent = '(vacía = conservar actual)';
+  document.getElementById('emp_nombre').focus();
+}
+function limpiarEmp() {
+  document.getElementById('emp_id').value = '';
+  document.getElementById('emp_nombre').value = '';
+  document.getElementById('emp_puesto').selectedIndex = 0;
+  document.getElementById('emp_username').value = '';
+  document.getElementById('emp_rol').value = 'Recepcionista';
+  document.getElementById('emp_password').value = '';
+  document.getElementById('emp_password').required = true;
+  document.getElementById('emp_submit').textContent = 'Crear empleado y usuario';
+  document.getElementById('password_hint').textContent = '(mínimo 6 caracteres)';
 }
 </script>
 {% endblock %}
