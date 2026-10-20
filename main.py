@@ -80,20 +80,26 @@ db.execute("""CREATE TABLE IF NOT EXISTS cierres_diarios (
     PRIMARY KEY (sucursal_id, fecha)
 )""")
 
-# Confirmación individual por venta y conservación de cierres históricos.
+# Añadir la columna una sola vez. Solo en esa primera migración se recuperan
+# las ventas que ya estaban confirmadas en cierres históricos.
 try:
+    columnas_ventas = db.fetchall("PRAGMA table_info(ventas)") if not db.use_postgres else db.fetchall(
+        "SELECT column_name AS name FROM information_schema.columns WHERE table_name='ventas'"
+    )
+    existe_confirmado = any(col["name"] == "confirmado" for col in columnas_ventas)
+except Exception:
+    existe_confirmado = False
+
+if not existe_confirmado:
     db.execute("ALTER TABLE ventas ADD COLUMN confirmado INTEGER NOT NULL DEFAULT 0")
-except Exception:
-    pass
-try:
-    cierres_anteriores = db.fetchall("SELECT venta_ids FROM cierres_diarios")
-    for cierre_anterior in cierres_anteriores:
-        for id_texto in (cierre_anterior["venta_ids"] or "").split(","):
-            if id_texto.strip().isdigit():
-                db.execute("UPDATE ventas SET confirmado=1 WHERE id=?", (int(id_texto),))
-except Exception:
-    pass
-)""")
+    try:
+        cierres_anteriores = db.fetchall("SELECT venta_ids FROM cierres_diarios")
+        for cierre_anterior in cierres_anteriores:
+            for id_texto in (cierre_anterior["venta_ids"] or "").split(","):
+                if id_texto.strip().isdigit():
+                    db.execute("UPDATE ventas SET confirmado=1 WHERE id=?", (int(id_texto),))
+    except Exception:
+        pass
 
 
 def get_user(request: Request):
@@ -133,7 +139,7 @@ async def dashboard(request: Request):
         return RedirectResponse("/login", status_code=303)
     hoy = today_str()
     rows = db.fetchall(
-        """SELECT v.total, v.monto_recibido, v.estado_pago, s.nombre as suc FROM ventas v
+        """SELECT v.total, v.monto_recibido, v.estado_pago, v.confirmado, s.nombre as suc FROM ventas v
            JOIN sucursales s ON s.id=v.sucursal_id
            WHERE date(v.fecha_hora)=? AND COALESCE(v.activo, 0)=1 AND COALESCE(v.confirmado, 0)=1 AND UPPER(TRIM(COALESCE(v.estado_pago, ''))) NOT IN ('COTIZACION', 'CANCELADO', 'CANCELADA', 'CANCELLED', 'CANCEL', 'ANULADO', 'ANULADA')""", (hoy,))
     total_ventas = sum(r["total"] or 0 for r in rows)
