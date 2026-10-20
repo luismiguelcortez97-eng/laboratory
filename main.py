@@ -65,7 +65,7 @@ app.mount(
     name="static"
 )
 
-_env = Environment(loader=FileSystemLoader(str(BASE / "templates")), autoescape=True, cache_size=0)
+_env = Environment(loader=FileSystemLoader(str(BASE / "templates")), autoescape=True, cache_size=100)
 _env.filters["money"] = format_money
 _env.filters["dt"] = format_dt
 templates = Jinja2Templates(env=_env)
