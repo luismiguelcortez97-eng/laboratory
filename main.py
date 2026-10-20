@@ -70,6 +70,16 @@ _env.filters["money"] = format_money
 _env.filters["dt"] = format_dt
 templates = Jinja2Templates(env=_env)
 
+# Guarda el conjunto exacto de operaciones que se confirmó desde Registro Diario.
+db.execute("""CREATE TABLE IF NOT EXISTS cierres_diarios (
+    sucursal_id INTEGER NOT NULL,
+    fecha TEXT NOT NULL,
+    venta_ids TEXT NOT NULL DEFAULT '',
+    confirmado_por INTEGER,
+    confirmado_en TEXT NOT NULL,
+    PRIMARY KEY (sucursal_id, fecha)
+)""")
+
 
 def get_user(request: Request):
     uid = request.session.get("user_id")
@@ -262,7 +272,7 @@ async def diario(request: Request, sucursal_id: int = 0, fecha: str = "", q: str
     sql = """SELECT v.*, p.nombre_completo as paciente, p.edad, e.nombre_completo as empleado,
         (SELECT GROUP_CONCAT(vd.nombre, ', ') FROM venta_detalles vd WHERE vd.venta_id=v.id) as estudios
         FROM ventas v JOIN pacientes p ON p.id=v.paciente_id LEFT JOIN empleados e ON e.id=v.empleado_id
-        WHERE v.sucursal_id=? AND date(v.fecha_hora)=? AND v.activo=1"""
+        WHERE v.sucursal_id=? AND date(v.fecha_hora)=? AND COALESCE(v.activo, 0)=1 AND UPPER(TRIM(COALESCE(v.estado_pago, ''))) NOT IN ('CANCELADO', 'CANCELADA', 'CANCELLED', 'CANCEL', 'ANULADO', 'ANULADA')"""
     params = [sucursal_id, fecha]
     if estado and estado != "Todos":
         sql += " AND v.estado_pago=?"; params.append(estado)
@@ -282,6 +292,7 @@ async def diario(request: Request, sucursal_id: int = 0, fecha: str = "", q: str
     return templates.TemplateResponse(request, "diario.html", {"user": user, "flashes": get_flashes(request),
         "operaciones": rows, "sucursales": sucursales, "sucursal_id": sucursal_id,
         "suc_nombre": suc_nombre, "fecha": fecha, "q": q, "estado": estado or "Todos",
+        "cierre_diario": db.fetchone("SELECT confirmado_en, confirmado_por, venta_ids FROM cierres_diarios WHERE sucursal_id=? AND fecha=?", (sucursal_id, fecha)),
         "estados": ["Todos"] + ESTADOS_PAGO, "total_ventas": total_ventas,
         "total_cobrado": total_cobrado, "total_pend": total_pend, "por_met": por_met, "num_ops": len(rows),
     })
@@ -342,6 +353,63 @@ async def eliminar_operacion(
     if fecha:
         destino += f"&fecha={fecha}"
 
+    return RedirectResponse(destino, status_code=303)
+
+
+@app.post("/diario/confirmar")
+async def confirmar_registro_diario(
+    request: Request,
+    sucursal_id: int = Form(...),
+    fecha: str = Form(...),
+    q: str = Form(""),
+    estado: str = Form("Todos")
+):
+    user = get_user(request)
+    if not user:
+        return RedirectResponse("/login", status_code=303)
+
+    # Debe coincidir con las operaciones visibles en Registro Diario, incluidos filtros.
+    sql = """SELECT v.id
+             FROM ventas v
+             JOIN pacientes p ON p.id=v.paciente_id
+             WHERE v.sucursal_id=? AND date(v.fecha_hora)=?
+               AND COALESCE(v.activo, 0)=1
+               AND UPPER(TRIM(COALESCE(v.estado_pago, ''))) NOT IN
+                   ('CANCELADO', 'CANCELADA', 'CANCELLED', 'CANCEL', 'ANULADO', 'ANULADA')"""
+    params = [sucursal_id, fecha]
+    if estado and estado != "Todos":
+        sql += " AND v.estado_pago=?"
+        params.append(estado)
+    if q:
+        sql += " AND (p.nombre_completo LIKE ? OR v.folio LIKE ?)"
+        params.extend([f"%{q}%", f"%{q}%"])
+    sql += " ORDER BY v.fecha_hora, v.id"
+    ids = [str(row["id"]) for row in db.fetchall(sql, params)]
+    ids_guardados = ",".join(ids)
+
+    existente = db.fetchone(
+        "SELECT venta_ids FROM cierres_diarios WHERE sucursal_id=? AND fecha=?",
+        (sucursal_id, fecha)
+    )
+    if existente and existente["venta_ids"] == ids_guardados:
+        flash(request, f"Registro del {fecha} ya confirmado; no cambió la lista de operaciones.")
+    else:
+        db.execute(
+            """INSERT INTO cierres_diarios (sucursal_id, fecha, venta_ids, confirmado_por, confirmado_en)
+               VALUES (?, ?, ?, ?, ?)
+               ON CONFLICT(sucursal_id, fecha) DO UPDATE SET
+                 venta_ids=excluded.venta_ids,
+                 confirmado_por=excluded.confirmado_por,
+                 confirmado_en=excluded.confirmado_en""",
+            (sucursal_id, fecha, ids_guardados, user["id"], now_iso())
+        )
+        flash(request, f"Registro diario confirmado: {len(ids)} operaciones guardadas para reportes.")
+    destino = f"/diario?sucursal_id={sucursal_id}&fecha={fecha}"
+    if estado and estado != "Todos":
+        destino += f"&estado={estado}"
+    if q:
+        from urllib.parse import quote
+        destino += f"&q={quote(q)}"
     return RedirectResponse(destino, status_code=303)
 
 
@@ -535,19 +603,36 @@ async def reportes_generar(request: Request, sucursal_id: int = Form(...), tipo:
     suc = db.fetchone("SELECT nombre FROM sucursales WHERE id=?", (sucursal_id,))
     sucursal = suc["nombre"] if suc else ""
 
+    cierres = db.fetchall(
+        "SELECT fecha, venta_ids FROM cierres_diarios WHERE sucursal_id=? AND fecha BETWEEN ? AND ? ORDER BY fecha",
+        (sucursal_id, desde, hasta)
+    )
+    ids_confirmados = []
+    for cierre in cierres:
+        ids_confirmados.extend(
+            int(x) for x in (cierre["venta_ids"] or "").split(",") if x.strip().isdigit()
+        )
+
     if tipo.strip().upper() == "MILAB":
-        detalles = db.fetchall(
-            """SELECT v.id AS venta_id, v.folio, v.fecha_hora, p.folio AS folio_paciente,
-                      p.nombre_completo AS paciente, vd.clave, vd.nombre AS estudio,
-                      vd.cantidad, vd.costo_unitario,
-                      (vd.cantidad * vd.costo_unitario) AS costo_total
-               FROM ventas v
-               JOIN pacientes p ON p.id=v.paciente_id
-               JOIN venta_detalles vd ON vd.venta_id=v.id
-               WHERE v.sucursal_id=? AND date(v.fecha_hora) BETWEEN ? AND ?
-                 AND COALESCE(v.activo, 0)=1 AND UPPER(TRIM(COALESCE(v.estado_pago, ''))) NOT IN ('CANCELADO', 'CANCELADA', 'CANCELLED', 'CANCEL', 'ANULADO', 'ANULADA')
-               ORDER BY v.fecha_hora, p.nombre_completo, vd.nombre""",
-            (sucursal_id, desde, hasta))
+        detalles = []
+        if ids_confirmados:
+            placeholders = ",".join("?" for _ in ids_confirmados)
+            detalles = db.fetchall(
+                f"""SELECT v.id AS venta_id, v.folio, v.fecha_hora, p.folio AS folio_paciente,
+                           p.nombre_completo AS paciente, vd.clave, vd.nombre AS estudio,
+                           vd.cantidad, vd.costo_unitario,
+                           (vd.cantidad * vd.costo_unitario) AS costo_total
+                    FROM ventas v
+                    JOIN pacientes p ON p.id=v.paciente_id
+                    JOIN venta_detalles vd ON vd.venta_id=v.id
+                    WHERE v.sucursal_id=? AND date(v.fecha_hora) BETWEEN ? AND ?
+                      AND v.id IN ({placeholders})
+                      AND COALESCE(v.activo, 0)=1
+                      AND UPPER(TRIM(COALESCE(v.estado_pago, ''))) NOT IN
+                          ('CANCELADO', 'CANCELADA', 'CANCELLED', 'CANCEL', 'ANULADO', 'ANULADA')
+                    ORDER BY v.fecha_hora, p.nombre_completo, vd.nombre""",
+                [sucursal_id, desde, hasta] + ids_confirmados
+            )
         if confirmar_pdf != "1":
             revision = {
                 "sucursal": sucursal, "desde": desde, "hasta": hasta,
@@ -563,10 +648,17 @@ async def reportes_generar(request: Request, sucursal_id: int = Form(...), tipo:
         return FileResponse(path=pdf_path, filename=f"MILAB_{desde}_{hasta}.pdf",
                             media_type="application/pdf", content_disposition_type="inline")
 
-    rows = db.fetchall(
-        """SELECT v.folio, v.fecha_hora, v.total, v.monto_recibido, v.estado_pago, v.metodo_pago FROM ventas v
-           WHERE v.sucursal_id=? AND date(v.fecha_hora) BETWEEN ? AND ? AND COALESCE(v.activo, 0)=1 AND UPPER(TRIM(COALESCE(v.estado_pago, ''))) NOT IN ('CANCELADO', 'CANCELADA', 'CANCELLED', 'CANCEL', 'ANULADO', 'ANULADA')
-           ORDER BY v.fecha_hora""", (sucursal_id, desde, hasta))
+    rows = []
+    if ids_confirmados:
+        placeholders = ",".join("?" for _ in ids_confirmados)
+        rows = db.fetchall(
+            f"""SELECT v.folio, v.fecha_hora, v.total, v.monto_recibido, v.estado_pago, v.metodo_pago FROM ventas v
+                WHERE v.sucursal_id=? AND date(v.fecha_hora) BETWEEN ? AND ?
+                  AND v.id IN ({placeholders})
+                  AND COALESCE(v.activo, 0)=1
+                  AND UPPER(TRIM(COALESCE(v.estado_pago, ''))) NOT IN
+                      ('CANCELADO', 'CANCELADA', 'CANCELLED', 'CANCEL', 'ANULADO', 'ANULADA')
+                ORDER BY v.fecha_hora""", [sucursal_id, desde, hasta] + ids_confirmados)
     resultado = {
         "tipo": "LC Lab", "sucursal": sucursal, "desde": desde, "hasta": hasta,
         "ops": len(rows), "total_ventas": sum(r["total"] or 0 for r in rows),
