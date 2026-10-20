@@ -118,33 +118,65 @@ def generar_pdf_venta(venta, detalles, paciente, sucursal, empleado):
 
 
 def generar_pdf_milab(detalles, sucursal, desde, hasta):
-    """PDF de MILAB con lista de pacientes y únicamente costos de insumo."""
+    """PDF MILAB: total de insumos por paciente y total general."""
     from xml.sax.saxutils import escape
+
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     path = DOCS_DIR / f"MILAB_{desde}_{hasta}_{ts}.pdf"
-    doc = SimpleDocTemplate(str(path), pagesize=letter, rightMargin=1.0*cm, leftMargin=1.0*cm, topMargin=1.0*cm, bottomMargin=1.0*cm)
+    doc = SimpleDocTemplate(str(path), pagesize=letter, rightMargin=1.5*cm,
+                            leftMargin=1.5*cm, topMargin=1.2*cm, bottomMargin=1.2*cm)
     st = _styles()
-    story = [Paragraph("LC LAB", st["Titulo"]), Paragraph("RELACIÓN DE ESTUDIOS PARA MILAB", st["Sub"]), Paragraph("Sucursal: " + escape(str(sucursal)), st["Cen"]), Paragraph("Periodo: " + escape(str(desde)) + " al " + escape(str(hasta)), st["Cen"]), Spacer(1, 8), HRFlowable(width="100%", thickness=1.5, color=AZUL, spaceAfter=8)]
-    data = [[Paragraph("<b>Fecha</b>", st["Cen"]), Paragraph("<b>Paciente / folio</b>", st["Cen"]), Paragraph("<b>Estudio</b>", st["Cen"]), Paragraph("<b>Cant.</b>", st["Cen"]), Paragraph("<b>Insumo unit.</b>", st["Cen"]), Paragraph("<b>Total insumo</b>", st["Cen"])]]
-    total = 0.0
-    pacientes = set()
+    story = [
+        Paragraph("LC LAB", st["Titulo"]),
+        Paragraph("REPORTE DE INSUMOS — MILAB", st["Sub"]),
+        Paragraph("Sucursal: " + escape(str(sucursal)), st["Cen"]),
+        Paragraph("Periodo: " + escape(str(desde)) + " al " + escape(str(hasta)), st["Cen"]),
+        Spacer(1, 8),
+        HRFlowable(width="100%", thickness=1.5, color=AZUL, spaceAfter=8),
+    ]
+
+    # Agrupa todos los conceptos de cada paciente en un solo importe.
+    pacientes = {}
     for r in detalles:
-        nombre = str(r["paciente"] or "")
-        folio_pac = str(r["folio_paciente"] or "")
-        cantidad = float(r["cantidad"] or 0)
-        costo = float(r["costo_unitario"] or 0)
-        subtotal = float(r["costo_total"] or 0)
-        total += subtotal
-        pacientes.add((folio_pac, nombre))
-        data.append([Paragraph(escape(str(r["fecha_hora"] or "")[:10]), st["Sm"]), Paragraph(escape(nombre) + "<br/><font size='7'>" + escape(folio_pac) + " · " + escape(str(r["folio"] or "")) + "</font>", st["Sm"]), Paragraph(escape(str(r["estudio"] or "")), st["Sm"]), Paragraph(f"{cantidad:g}", st["Cen"]), Paragraph(f"MXN {costo:,.2f}", st["Der"]), Paragraph(f"MXN {subtotal:,.2f}", st["Der"])])
-    if not detalles:
-        data.append([Paragraph("Sin estudios registrados en el periodo seleccionado.", st["Sm"]), "", "", "", "", ""])
-    tabla = Table(data, repeatRows=1, colWidths=[1.8*cm, 4.8*cm, 4.4*cm, 1.2*cm, 2.6*cm, 2.8*cm])
-    tabla.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, 0), AZUL), ("TEXTCOLOR", (0, 0), (-1, 0), colors.white), ("GRID", (0, 0), (-1, -1), 0.35, colors.HexColor("#aab7b8")), ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, AZUL_CLARO]), ("VALIGN", (0, 0), (-1, -1), "MIDDLE"), ("TOPPADDING", (0, 0), (-1, -1), 4), ("BOTTOMPADDING", (0, 0), (-1, -1), 4)]))
-    story.extend([tabla, Spacer(1, 10)])
-    resumen = [[Paragraph("<b>Pacientes</b>", st["Sm"]), Paragraph(str(len(pacientes)), st["Der"])], [Paragraph("<b>Estudios</b>", st["Sm"]), Paragraph(str(len(detalles)), st["Der"])], [Paragraph("<b>TOTAL DE INSUMOS MILAB</b>", st["Sm"]), Paragraph(f"<b>MXN {total:,.2f}</b>", st["Der"])]]
-    rt = Table(resumen, colWidths=[12*cm, 5.5*cm], hAlign="RIGHT")
-    rt.setStyle(TableStyle([("BACKGROUND", (0, 2), (-1, 2), AZUL_CLARO), ("BOX", (0, 0), (-1, -1), 0.7, AZUL), ("TOPPADDING", (0, 0), (-1, -1), 5), ("BOTTOMPADDING", (0, 0), (-1, -1), 5), ("LEFTPADDING", (0, 0), (-1, -1), 7)]))
-    story.extend([rt, Spacer(1, 10), Paragraph("Este reporte muestra exclusivamente costos de insumo; no incluye precios de venta ni cobros al paciente.", st["Cen"]), Paragraph("Generado el " + datetime.now().strftime("%d/%m/%Y %H:%M:%S"), st["Cen"])])
+        folio = str(r["folio_paciente"] or "")
+        nombre = str(r["paciente"] or "Paciente sin nombre")
+        clave = (folio, nombre)
+        pacientes[clave] = pacientes.get(clave, 0.0) + float(r["costo_total"] or 0)
+
+    data = [[Paragraph("<b>Paciente</b>", st["Cen"]),
+             Paragraph("<b>Total de insumos</b>", st["Cen"])]]
+    total_general = 0.0
+    for (folio, nombre), total_paciente in sorted(pacientes.items(), key=lambda x: x[0][1].casefold()):
+        nombre_html = escape(nombre)
+        if folio:
+            nombre_html += "<br/><font size='8'>Folio: " + escape(folio) + "</font>"
+        data.append([Paragraph(nombre_html, st["Sm"]),
+                     Paragraph(f"MXN {total_paciente:,.2f}", st["Der"])])
+        total_general += total_paciente
+
+    if not pacientes:
+        data.append([Paragraph("Sin pacientes registrados en el periodo seleccionado.", st["Sm"]), ""])
+
+    data.append([Paragraph("<b>TOTAL GENERAL</b>", st["Sm"]),
+                 Paragraph(f"<b>MXN {total_general:,.2f}</b>", st["Der"])])
+
+    tabla = Table(data, repeatRows=1, colWidths=[11.5*cm, 6*cm])
+    tabla.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), AZUL),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#aab7b8")),
+        ("ROWBACKGROUNDS", (0, 1), (-1, -2), [colors.white, AZUL_CLARO]),
+        ("BACKGROUND", (0, -1), (-1, -1), AZUL_CLARO),
+        ("BOX", (0, -1), (-1, -1), 0.8, AZUL),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("TOPPADDING", (0, 0), (-1, -1), 7),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
+        ("LEFTPADDING", (0, 0), (-1, -1), 8),
+    ]))
+    story.extend([
+        tabla, Spacer(1, 12),
+        Paragraph("Solo total de insumos por paciente y total general. Sin desglose de estudios, precios de venta ni cobros.", st["Cen"]),
+        Paragraph("Generado el " + datetime.now().strftime("%d/%m/%Y %H:%M:%S"), st["Cen"]),
+    ])
     doc.build(story)
     return str(path)
