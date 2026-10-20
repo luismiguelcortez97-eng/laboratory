@@ -18,6 +18,27 @@
   </form>
   {% endfor %}
 </div>
+<div class="card card-lc p-3 mb-3">
+  <h6><i class="bi bi-shield-lock"></i> Cambiar mi contraseña</h6>
+  <p class="small text-muted mb-2">Introduce el NIP de autorización y la nueva contraseña para la cuenta con la que iniciaste sesión.</p>
+  <form method="post" action="/config/cambiar-password" class="row g-2">
+    <div class="col-md-3">
+      <label class="form-label small">NIP de autorización</label>
+      <input type="password" name="nip" class="form-control form-control-sm" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" required>
+    </div>
+    <div class="col-md-4">
+      <label class="form-label small">Nueva contraseña</label>
+      <input type="password" name="nueva_password" class="form-control form-control-sm" minlength="6" autocomplete="new-password" required>
+    </div>
+    <div class="col-md-4">
+      <label class="form-label small">Confirmar contraseña</label>
+      <input type="password" name="confirmar_password" class="form-control form-control-sm" minlength="6" autocomplete="new-password" required>
+    </div>
+    <div class="col-md-1 d-flex align-items-end">
+      <button type="submit" class="btn btn-lc btn-sm">Guardar</button>
+    </div>
+  </form>
+</div>
 <div class="card card-lc p-3">
   <h6>Información del sistema</h6>
   <ul class="mb-0 small">
