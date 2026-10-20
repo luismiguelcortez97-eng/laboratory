@@ -197,6 +197,46 @@ async def pacientes_list(request: Request, q: str = ""):
         "empleados": db.fetchall("SELECT * FROM empleados WHERE activo=1"), "sexos": SEXOS, "q": q,
     })
 
+@app.get("/api/pacientes/buscar")
+async def api_buscar_pacientes(request: Request, q: str = ""):
+    user = get_user(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="No autorizado")
+    termino = q.strip()
+    if len(termino) < 1:
+        return []
+    filas = db.fetchall(
+        """SELECT p.id, p.folio, p.nombre_completo, p.edad, p.sexo, p.telefono,
+                  p.fecha_nacimiento, s.nombre AS sucursal
+           FROM pacientes p
+           LEFT JOIN sucursales s ON s.id=p.sucursal_id
+           WHERE p.activo=1
+             AND (p.nombre_completo LIKE ? OR p.folio LIKE ? OR p.telefono LIKE ?)
+           ORDER BY p.nombre_completo
+           LIMIT 40""",
+        (f"%{termino}%", f"%{termino}%", f"%{termino}%")
+    )
+    return [dict(fila) for fila in filas]
+
+
+@app.get("/api/pacientes/{paciente_id}")
+async def api_datos_paciente(paciente_id: int, request: Request):
+    user = get_user(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="No autorizado")
+    paciente = db.fetchone(
+        """SELECT p.*, s.nombre AS sucursal, e.nombre_completo AS empleado_registro
+           FROM pacientes p
+           LEFT JOIN sucursales s ON s.id=p.sucursal_id
+           LEFT JOIN empleados e ON e.id=p.empleado_id
+           WHERE p.id=? AND p.activo=1""",
+        (paciente_id,)
+    )
+    if not paciente:
+        raise HTTPException(status_code=404, detail="Paciente no encontrado")
+    return dict(paciente)
+
+
 @app.post("/pacientes/guardar")
 async def pacientes_guardar(request: Request, nombre_completo: str = Form(...), sucursal_id: int = Form(...),
     empleado_id: int = Form(...), edad: str = Form(""), sexo: str = Form(""), fecha_nacimiento: str = Form(""),
