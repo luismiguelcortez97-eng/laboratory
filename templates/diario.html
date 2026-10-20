@@ -99,6 +99,24 @@
   {% endif %}
 </div>
 
+<!-- Confirmación para reportes semanales -->
+<div class="card card-lc p-3 mb-3">
+  {% if cierre_diario %}
+    <p class="mb-2"><span class="badge bg-success">Registro confirmado</span>
+      <span class="small text-muted">Confirmado el {{ cierre_diario.confirmado_en }}. Si cambias la lista visible, vuelve a confirmar.</span></p>
+  {% else %}
+    <p class="mb-2"><span class="badge bg-warning text-dark">Pendiente de confirmar</span>
+      <span class="small text-muted">Solo las operaciones visibles y confirmadas se guardarán para reportes semanales.</span></p>
+  {% endif %}
+  <form method="post" action="/diario/confirmar" onsubmit="return confirm('¿Confirmar exactamente las operaciones visibles con estos filtros para los reportes semanales?');">
+    <input type="hidden" name="sucursal_id" value="{{ sucursal_id }}">
+    <input type="hidden" name="fecha" value="{{ fecha }}">
+    <input type="hidden" name="q" value="{{ q }}">
+    <input type="hidden" name="estado" value="{{ estado }}">
+    <button type="submit" class="btn btn-success btn-sm">Confirmar registro diario para reportes</button>
+  </form>
+</div>
+
 <!-- Tabla de operaciones -->
 <div class="card card-lc p-3">
   <div class="table-responsive">
