@@ -965,23 +965,55 @@ async def config_cambiar_password(
 @app.get("/pdf/{venta_id}")
 async def descargar_pdf(venta_id: int, request: Request):
     user = get_user(request)
-
     if not user:
         return RedirectResponse("/login", status_code=303)
 
-    venta = db.fetchone(
-        "SELECT pdf_path, folio FROM ventas WHERE id=?",
-        (venta_id,)
-    )
+    # Reutiliza el archivo existente; si Render perdió el archivo temporal,
+    # reconstruye el PDF con los datos persistidos de la venta.
+    venta_row = db.fetchone("SELECT * FROM ventas WHERE id=?", (venta_id,))
+    if not venta_row:
+        flash(request, "No se encontró la cotización solicitada.", "danger")
+        return RedirectResponse("/diario", status_code=303)
 
-    if venta and venta["pdf_path"] and Path(venta["pdf_path"]).exists():
+    venta = dict(venta_row)
+    pdf_path = str(venta.get("pdf_path") or "").strip()
+    if pdf_path and Path(pdf_path).is_file():
         return FileResponse(
-            path=venta["pdf_path"],
-            filename=f"{venta['folio']}.pdf",
+            path=pdf_path,
+            filename=f"{venta.get('folio') or ('Venta_' + str(venta_id))}.pdf",
             media_type="application/pdf",
             content_disposition_type="inline"
         )
 
-    flash(request, "No se encontró el PDF de esta cotización", "danger")
-    return RedirectResponse("/diario", status_code=303)
+    try:
+        paciente_row = db.fetchone("SELECT * FROM pacientes WHERE id=?", (venta["paciente_id"],))
+        sucursal_row = db.fetchone("SELECT nombre FROM sucursales WHERE id=?", (venta["sucursal_id"],))
+        empleado_row = db.fetchone("SELECT nombre_completo FROM empleados WHERE id=?", (venta.get("empleado_id"),)) if venta.get("empleado_id") else None
+        detalles_rows = db.fetchall(
+            "SELECT estudio_id, clave, nombre, cantidad, precio_unitario, costo_unitario, importe "
+            "FROM venta_detalles WHERE venta_id=? ORDER BY id",
+            (venta_id,)
+        )
+        if not paciente_row or not sucursal_row or not detalles_rows:
+            raise ValueError("Faltan datos guardados de la cotización para reconstruir el PDF.")
+
+        nuevo_pdf = generar_pdf_venta(
+            venta,
+            [dict(row) for row in detalles_rows],
+            dict(paciente_row),
+            sucursal_row["nombre"],
+            empleado_row["nombre_completo"] if empleado_row else "",
+            observaciones=venta.get("observaciones") or ""
+        )
+        db.execute("UPDATE ventas SET pdf_path=? WHERE id=?", (nuevo_pdf, venta_id))
+        return FileResponse(
+            path=nuevo_pdf,
+            filename=f"{venta.get('folio') or ('Venta_' + str(venta_id))}.pdf",
+            media_type="application/pdf",
+            content_disposition_type="inline"
+        )
+    except Exception as e:
+        print(f"Error al regenerar PDF de venta {venta_id}: {e}")
+        flash(request, "No se pudo reconstruir el PDF. Verifica que la cotización conserve sus datos.", "danger")
+        return RedirectResponse("/diario", status_code=303)
 
