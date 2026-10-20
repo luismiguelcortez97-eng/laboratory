@@ -12,7 +12,7 @@ from fastapi.templating import Jinja2Templates
 from jinja2 import Environment, FileSystemLoader
 from starlette.middleware.sessions import SessionMiddleware
 
-from database import db, DOCS_DIR, verify_password
+from database import db, DOCS_DIR, verify_password, hash_password
 from helpers import (
     now_iso, today_str, format_money, safe_float, safe_int,
     format_dt, calcular_margen, METODOS_PAGO, ESTADOS_PAGO, SEXOS, PUESTOS
@@ -567,6 +567,33 @@ async def config_codigo(request: Request, sucursal_id: int = Form(...), codigo: 
         return RedirectResponse("/config", status_code=303)
     db.execute("UPDATE codigos_autorizacion SET codigo=?, updated_at=? WHERE sucursal_id=?", (codigo.strip(), now_iso(), sucursal_id))
     flash(request, "Codigo actualizado")
+    return RedirectResponse("/config", status_code=303)
+
+
+@app.post("/config/cambiar-password")
+async def config_cambiar_password(
+    request: Request,
+    nip: str = Form(...),
+    nueva_password: str = Form(...),
+    confirmar_password: str = Form(...)
+):
+    user = get_user(request)
+    if not user:
+        return RedirectResponse("/login", status_code=303)
+    if nip.strip() != "2026":
+        flash(request, "NIP incorrecto. No se cambió la contraseña.", "danger")
+        return RedirectResponse("/config", status_code=303)
+    if len(nueva_password) < 6:
+        flash(request, "La contraseña nueva debe tener al menos 6 caracteres.", "danger")
+        return RedirectResponse("/config", status_code=303)
+    if nueva_password != confirmar_password:
+        flash(request, "Las contraseñas nuevas no coinciden.", "danger")
+        return RedirectResponse("/config", status_code=303)
+    db.execute(
+        "UPDATE usuarios SET password_hash=? WHERE id=?",
+        (hash_password(nueva_password), user["id"])
+    )
+    flash(request, "Contraseña actualizada correctamente.")
     return RedirectResponse("/config", status_code=303)
 
 
