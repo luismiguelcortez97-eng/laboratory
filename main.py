@@ -80,6 +80,21 @@ db.execute("""CREATE TABLE IF NOT EXISTS cierres_diarios (
     PRIMARY KEY (sucursal_id, fecha)
 )""")
 
+# Confirmación individual por venta y conservación de cierres históricos.
+try:
+    db.execute("ALTER TABLE ventas ADD COLUMN confirmado INTEGER NOT NULL DEFAULT 0")
+except Exception:
+    pass
+try:
+    cierres_anteriores = db.fetchall("SELECT venta_ids FROM cierres_diarios")
+    for cierre_anterior in cierres_anteriores:
+        for id_texto in (cierre_anterior["venta_ids"] or "").split(","):
+            if id_texto.strip().isdigit():
+                db.execute("UPDATE ventas SET confirmado=1 WHERE id=?", (int(id_texto),))
+except Exception:
+    pass
+)""")
+
 
 def get_user(request: Request):
     uid = request.session.get("user_id")
@@ -120,7 +135,7 @@ async def dashboard(request: Request):
     rows = db.fetchall(
         """SELECT v.total, v.monto_recibido, v.estado_pago, s.nombre as suc FROM ventas v
            JOIN sucursales s ON s.id=v.sucursal_id
-           WHERE date(v.fecha_hora)=? AND COALESCE(v.activo, 0)=1 AND UPPER(TRIM(COALESCE(v.estado_pago, ''))) NOT IN ('CANCELADO', 'CANCELADA', 'CANCELLED', 'CANCEL', 'ANULADO', 'ANULADA')""", (hoy,))
+           WHERE date(v.fecha_hora)=? AND COALESCE(v.activo, 0)=1 AND COALESCE(v.confirmado, 0)=1 AND UPPER(TRIM(COALESCE(v.estado_pago, ''))) NOT IN ('COTIZACION', 'CANCELADO', 'CANCELADA', 'CANCELLED', 'CANCEL', 'ANULADO', 'ANULADA')""", (hoy,))
     total_ventas = sum(r["total"] or 0 for r in rows)
     total_cobrado = sum(r["monto_recibido"] or 0 for r in rows)
     total_pend = sum(max(0, (r["total"] or 0) - (r["monto_recibido"] or 0)) for r in rows)
@@ -130,7 +145,7 @@ async def dashboard(request: Request):
     pac = db.fetchone("SELECT COUNT(*) as c FROM pacientes WHERE date(fecha_registro)=? AND activo=1", (hoy,))
     top = db.fetchall(
         """SELECT vd.nombre, SUM(vd.cantidad) as cant FROM venta_detalles vd
-           JOIN ventas v ON v.id=vd.venta_id WHERE date(v.fecha_hora)=? AND COALESCE(v.activo, 0)=1 AND UPPER(TRIM(COALESCE(v.estado_pago, ''))) NOT IN ('CANCELADO', 'CANCELADA', 'CANCELLED', 'CANCEL', 'ANULADO', 'ANULADA')
+           JOIN ventas v ON v.id=vd.venta_id WHERE date(v.fecha_hora)=? AND COALESCE(v.activo, 0)=1 AND COALESCE(v.confirmado, 0)=1 AND UPPER(TRIM(COALESCE(v.estado_pago, ''))) NOT IN ('COTIZACION', 'CANCELADO', 'CANCELADA', 'CANCELLED', 'CANCEL', 'ANULADO', 'ANULADA')
            GROUP BY vd.nombre ORDER BY cant DESC LIMIT 8""", (hoy,))
     return templates.TemplateResponse(request, "dashboard.html", {"user": user, "flashes": get_flashes(request),
         "total_ventas": total_ventas, "total_cobrado": total_cobrado, "total_pend": total_pend,
@@ -228,7 +243,9 @@ async def cotizacion_guardar(request: Request):
     if not partidas:
         flash(request, "Sin estudios", "danger")
         return RedirectResponse("/cotizacion", status_code=303)
-    if estado_deseado == "PENDIENTE":
+    if estado_deseado == "COTIZACION":
+        estado, monto = "COTIZACION", 0.0
+    elif estado_deseado == "PENDIENTE":
         estado, monto = "PENDIENTE", 0.0
     elif monto >= total - 0.01:
         estado = "PAGADO"
@@ -280,12 +297,12 @@ async def diario(request: Request, sucursal_id: int = 0, fecha: str = "", q: str
         sql += " AND (p.nombre_completo LIKE ? OR v.folio LIKE ?)"; params.extend([f"%{q}%", f"%{q}%"])
     sql += " ORDER BY v.fecha_hora"
     rows = db.fetchall(sql, params)
-    total_ventas = sum(r["total"] or 0 for r in rows if r["estado_pago"] != "CANCELADO")
-    total_cobrado = sum(r["monto_recibido"] or 0 for r in rows if r["estado_pago"] != "CANCELADO")
-    total_pend = sum(max(0, (r["total"] or 0) - (r["monto_recibido"] or 0)) for r in rows if r["estado_pago"] != "CANCELADO")
+    total_ventas = sum(r["total"] or 0 for r in rows if r["confirmado"] and r["estado_pago"] not in ("CANCELADO", "COTIZACION"))
+    total_cobrado = sum(r["monto_recibido"] or 0 for r in rows if r["confirmado"] and r["estado_pago"] not in ("CANCELADO", "COTIZACION"))
+    total_pend = sum(max(0, (r["total"] or 0) - (r["monto_recibido"] or 0)) for r in rows if r["confirmado"] and r["estado_pago"] not in ("CANCELADO", "COTIZACION"))
     por_met = {}
     for r in rows:
-        if r["estado_pago"] != "CANCELADO":
+        if r["confirmado"] and r["estado_pago"] not in ("CANCELADO", "COTIZACION"):
             m = r["metodo_pago"] or "Sin metodo"
             por_met[m] = por_met.get(m, 0) + (r["monto_recibido"] or 0)
     suc_nombre = next((s["nombre"] for s in sucursales if s["id"] == sucursal_id), "")
@@ -296,6 +313,55 @@ async def diario(request: Request, sucursal_id: int = 0, fecha: str = "", q: str
         "estados": ["Todos"] + ESTADOS_PAGO, "total_ventas": total_ventas,
         "total_cobrado": total_cobrado, "total_pend": total_pend, "por_met": por_met, "num_ops": len(rows),
     })
+
+@app.post("/diario/confirmar-venta")
+async def confirmar_venta_individual(
+    request: Request,
+    venta_id: int = Form(...),
+    sucursal_id: int = Form(...),
+    fecha: str = Form("")
+):
+    user = get_user(request)
+    if not user:
+        return RedirectResponse("/login", status_code=303)
+    venta = db.fetchone(
+        """SELECT id, estado_pago, activo FROM ventas
+           WHERE id=? AND sucursal_id=?""",
+        (venta_id, sucursal_id)
+    )
+    if not venta or not venta["activo"]:
+        flash(request, "No se encontró una operación activa para confirmar.", "danger")
+    elif (venta["estado_pago"] or "").upper() in ("COTIZACION", "CANCELADO", "CANCELADA", "CANCELLED", "ANULADO", "ANULADA"):
+        flash(request, "Las cotizaciones y operaciones canceladas no se pueden confirmar para reportes.", "danger")
+    else:
+        db.execute(
+            "UPDATE ventas SET confirmado=1, updated_at=? WHERE id=? AND sucursal_id=? AND activo=1",
+            (now_iso(), venta_id, sucursal_id)
+        )
+        flash(request, "Paciente confirmado. Ya se incluirá en los reportes correspondientes.")
+    destino = f"/diario?sucursal_id={sucursal_id}"
+    if fecha:
+        destino += f"&fecha={fecha}"
+    return RedirectResponse(destino, status_code=303)
+
+
+@app.post("/diario/reiniciar-hoy")
+async def reiniciar_registro_hoy(request: Request):
+    user = get_user(request)
+    if not user:
+        return RedirectResponse("/login", status_code=303)
+    if user["rol"] != "Administrador":
+        raise HTTPException(status_code=403, detail="Solo el administrador puede reiniciar el registro de hoy.")
+    hoy = today_str()
+    db.execute(
+        """UPDATE ventas SET activo=0, confirmado=0, estado_pago='CANCELADO', updated_at=?
+           WHERE date(fecha_hora)=? AND COALESCE(activo, 0)=1""",
+        (now_iso(), hoy)
+    )
+    db.execute("DELETE FROM cierres_diarios WHERE fecha=?", (hoy,))
+    flash(request, f"Registro diario de hoy ({hoy}) reiniciado. El historial de otros días se conservó.")
+    return RedirectResponse(f"/diario?fecha={hoy}", status_code=303)
+
 
 @app.post("/diario/pago")
 async def registrar_pago(request: Request, venta_id: int = Form(...), monto: float = Form(...), metodo_pago: str = Form("Efectivo")):
@@ -607,11 +673,17 @@ async def reportes_generar(request: Request, sucursal_id: int = Form(...), tipo:
         "SELECT fecha, venta_ids FROM cierres_diarios WHERE sucursal_id=? AND fecha BETWEEN ? AND ? ORDER BY fecha",
         (sucursal_id, desde, hasta)
     )
-    ids_confirmados = []
-    for cierre in cierres:
-        ids_confirmados.extend(
-            int(x) for x in (cierre["venta_ids"] or "").split(",") if x.strip().isdigit()
+    ids_confirmados = [
+        int(row["id"]) for row in db.fetchall(
+            """SELECT id FROM ventas
+               WHERE sucursal_id=? AND date(fecha_hora) BETWEEN ? AND ?
+                 AND COALESCE(activo, 0)=1 AND COALESCE(confirmado, 0)=1
+                 AND UPPER(TRIM(COALESCE(estado_pago, ''))) NOT IN
+                     ('COTIZACION', 'CANCELADO', 'CANCELADA', 'CANCELLED', 'CANCEL', 'ANULADO', 'ANULADA')
+               ORDER BY fecha_hora, id""",
+            (sucursal_id, desde, hasta)
         )
+    ]
 
     if tipo.strip().upper() == "MILAB":
         detalles = []
@@ -633,17 +705,6 @@ async def reportes_generar(request: Request, sucursal_id: int = Form(...), tipo:
                     ORDER BY v.fecha_hora, p.nombre_completo, vd.nombre""",
                 [sucursal_id, desde, hasta] + ids_confirmados
             )
-        if confirmar_pdf != "1":
-            revision = {
-                "sucursal": sucursal, "desde": desde, "hasta": hasta,
-                "detalles": detalles,
-                "pacientes": len(set((r["folio_paciente"], r["paciente"]) for r in detalles)),
-                "total_insumos": sum(float(r["costo_total"] or 0) for r in detalles),
-            }
-            return templates.TemplateResponse(request, "reportes.html", {"user": user,
-                "flashes": get_flashes(request), "sucursales": sucursales, "resultado": None,
-                "revision_milab": revision, "sel_sucursal": sucursal_id, "sel_tipo": tipo,
-                "sel_desde": desde, "sel_hasta": hasta, "sel_codigo": codigo})
         pdf_path = generar_pdf_milab(detalles, sucursal, desde, hasta)
         return FileResponse(path=pdf_path, filename=f"MILAB_{desde}_{hasta}.pdf",
                             media_type="application/pdf", content_disposition_type="inline")
