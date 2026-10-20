@@ -63,6 +63,20 @@
 </form>
 
 <!-- Resumen del día -->
+{% if user.rol == 'Administrador' %}
+<div class="card card-lc p-3 mb-3 border border-danger">
+  <div class="d-flex flex-wrap align-items-center justify-content-between gap-2">
+    <div>
+      <strong class="text-danger">Reiniciar registro de hoy</strong>
+      <div class="small text-muted">Retira las operaciones de hoy de ambas sucursales, sin borrar el historial de días anteriores.</div>
+    </div>
+    <form method="post" action="/diario/reiniciar-hoy" onsubmit="return confirm('¿Reiniciar todas las operaciones de hoy en ambas sucursales? Esta acción las retirará del registro diario y de los reportes.');">
+      <button type="submit" class="btn btn-outline-danger btn-sm"><i class="bi bi-arrow-counterclockwise"></i> Reiniciar hoy</button>
+    </form>
+  </div>
+</div>
+{% endif %}
+
 <div class="card card-lc p-3 mb-3">
   <div class="row text-center g-2">
 
@@ -157,6 +171,13 @@
             <span class="badge badge-{{ o.estado_pago | lower }}">
               {{ o.estado_pago }}
             </span>
+            {% if o.estado_pago != 'COTIZACION' and o.estado_pago != 'CANCELADO' %}
+              {% if o.confirmado %}
+                <span class="badge bg-success d-block mt-1">Confirmado</span>
+              {% else %}
+                <span class="badge bg-warning text-dark d-block mt-1">Pendiente de confirmar</span>
+              {% endif %}
+            {% endif %}
           </td>
 
           <td>{{ o.metodo_pago or '—' }}</td>
@@ -176,8 +197,19 @@
 </a>
 
 
+            {% if not o.confirmado and o.estado_pago != 'COTIZACION' and o.estado_pago != 'CANCELADO' %}
+            <form method="post" action="/diario/confirmar-venta" class="d-inline">
+              <input type="hidden" name="venta_id" value="{{ o.id }}">
+              <input type="hidden" name="sucursal_id" value="{{ sucursal_id }}">
+              <input type="hidden" name="fecha" value="{{ fecha }}">
+              <button type="submit" class="btn btn-sm btn-success py-1 mb-1">
+                <i class="bi bi-check-circle"></i> Confirmar
+              </button>
+            </form>
+            {% endif %}
+
             <!-- Registrar pago -->
-            {% if o.estado_pago != 'PAGADO' and o.estado_pago != 'CANCELADO' %}
+            {% if o.estado_pago != 'PAGADO' and o.estado_pago != 'CANCELADO' and o.estado_pago != 'COTIZACION' %}
             <button type="button"
                     class="btn btn-sm btn-outline-success py-1 mb-1"
                     data-bs-toggle="modal"
