@@ -1,5 +1,6 @@
 """Generación de PDFs para LC Lab Web"""
 from datetime import datetime
+from helpers import ahora_local
 from pathlib import Path
 from reportlab.lib.pagesizes import letter
 from reportlab.lib.units import cm
@@ -31,7 +32,7 @@ def _styles():
 
 def generar_pdf_venta(venta, detalles, paciente, sucursal, empleado):
     folio = venta.get("folio", "X")
-    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    ts = ahora_local().strftime("%Y%m%d_%H%M%S")
     path = DOCS_DIR / f"Venta_{folio}_{ts}.pdf"
     doc = SimpleDocTemplate(str(path), pagesize=letter,
                             rightMargin=1.5*cm, leftMargin=1.5*cm, topMargin=1.2*cm, bottomMargin=1.2*cm)
@@ -119,7 +120,7 @@ def generar_pdf_venta(venta, detalles, paciente, sucursal, empleado):
     story.append(Spacer(1, 20))
     story.append(HRFlowable(width="100%", thickness=0.5, color=GRIS, spaceAfter=6))
     story.append(Paragraph("Documento generado por LC Lab. Conserve este comprobante.", st["Cen"]))
-    story.append(Paragraph(f"Generado el {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}", st["Cen"]))
+    story.append(Paragraph(f"Generado el {ahora_local().strftime('%d/%m/%Y %H:%M:%S')}", st["Cen"]))
     doc.build(story)
     return str(path)
 
@@ -128,7 +129,7 @@ def generar_pdf_milab(detalles, sucursal, desde, hasta):
     """PDF MILAB: estudios cobrados y total de insumos por paciente."""
     from xml.sax.saxutils import escape
 
-    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    ts = ahora_local().strftime("%Y%m%d_%H%M%S")
     path = DOCS_DIR / f"MILAB_{desde}_{hasta}_{ts}.pdf"
     doc = SimpleDocTemplate(str(path), pagesize=letter, rightMargin=1.2*cm,
                             leftMargin=1.2*cm, topMargin=1.2*cm, bottomMargin=1.2*cm)
@@ -190,7 +191,7 @@ def generar_pdf_milab(detalles, sucursal, desde, hasta):
     story.extend([
         tabla, Spacer(1, 12),
         Paragraph("Incluye el nombre de los estudios cobrados y el total de insumos por paciente, con el total general al final. No muestra precios de venta ni cobros individuales.", st["Cen"]),
-        Paragraph("Generado el " + datetime.now().strftime("%d/%m/%Y %H:%M:%S"), st["Cen"]),
+        Paragraph("Generado el " + ahora_local().strftime("%d/%m/%Y %H:%M:%S"), st["Cen"]),
     ])
     doc.build(story)
     return str(path)
@@ -200,7 +201,7 @@ def generar_pdf_reporte_lc(detalles, sucursal, desde, hasta):
     """Reporte general de ventas LC Lab para imprimir o guardar como PDF."""
     from xml.sax.saxutils import escape
 
-    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    ts = ahora_local().strftime("%Y%m%d_%H%M%S")
     path = DOCS_DIR / f"LC_Lab_{desde}_{hasta}_{ts}.pdf"
     doc = SimpleDocTemplate(str(path), pagesize=letter, rightMargin=1.5*cm,
                             leftMargin=1.5*cm, topMargin=1.2*cm, bottomMargin=1.2*cm)
@@ -253,7 +254,7 @@ def generar_pdf_reporte_lc(detalles, sucursal, desde, hasta):
         tabla, Spacer(1, 10),
         Paragraph(f"Total pendiente: <b>${total_pendiente:,.2f}</b>", st["Der"]),
         Paragraph("Este reporte incluye solo operaciones confirmadas, activas y no canceladas.", st["Cen"]),
-        Paragraph("Generado el " + datetime.now().strftime("%d/%m/%Y %H:%M:%S"), st["Cen"]),
+        Paragraph("Generado el " + ahora_local().strftime("%d/%m/%Y %H:%M:%S"), st["Cen"]),
     ])
     doc.build(story)
     return str(path)
