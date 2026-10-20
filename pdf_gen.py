@@ -149,13 +149,20 @@ def generar_pdf_milab(detalles, sucursal, desde, hasta):
         nombre = str(r["paciente"] or "Paciente sin nombre")
         clave = (folio, nombre)
         if clave not in pacientes:
-            pacientes[clave] = {"total": 0.0, "estudios": []}
+            pacientes[clave] = {
+                "total": 0.0, "estudios": [],
+                "fecha_nacimiento": r.get("fecha_nacimiento"),
+                "edad": r.get("edad"), "telefono": r.get("telefono")
+            }
         pacientes[clave]["total"] += float(r["costo_total"] or 0)
         estudio = str(r["estudio"] or "").strip()
         if estudio and estudio not in pacientes[clave]["estudios"]:
             pacientes[clave]["estudios"].append(estudio)
 
     data = [[Paragraph("<b>Paciente</b>", st["Cen"]),
+             Paragraph("<b>Fecha nacimiento</b>", st["Cen"]),
+             Paragraph("<b>Edad</b>", st["Cen"]),
+             Paragraph("<b>Celular</b>", st["Cen"]),
              Paragraph("<b>Estudios cobrados</b>", st["Cen"]),
              Paragraph("<b>Total de insumos</b>", st["Cen"])]]
     total_general = 0.0
@@ -165,16 +172,19 @@ def generar_pdf_milab(detalles, sucursal, desde, hasta):
             nombre_html += "<br/><font size='8'>Folio: " + escape(folio) + "</font>"
         estudios_html = "<br/>".join(escape(x) for x in info["estudios"]) or "Sin estudios registrados"
         data.append([Paragraph(nombre_html, st["Sm"]),
+                     Paragraph(escape(str(info.get("fecha_nacimiento") or "—")), st["Sm"]),
+                     Paragraph(escape(str(info.get("edad") or "—")), st["Cen"]),
+                     Paragraph(escape(str(info.get("telefono") or "—")), st["Sm"]),
                      Paragraph(estudios_html, st["Sm"]),
                      Paragraph(f"MXN {info['total']:,.2f}", st["Der"])])
         total_general += info["total"]
 
     if not pacientes:
-        data.append([Paragraph("Sin pacientes registrados en el periodo seleccionado.", st["Sm"]), "", ""])
-    data.append([Paragraph("<b>TOTAL GENERAL</b>", st["Sm"]), "",
-                 Paragraph(f"<b>MXN {total_general:,.2f}</b>", st["Der"])])
+        data.append([Paragraph("Sin pacientes registrados en el periodo seleccionado.", st["Sm"]), "", "", "", "", ""])
+    data.append([Paragraph("<b>TOTAL GENERAL</b>", st["Sm"]), "", "", "",
+                 "", Paragraph(f"<b>MXN {total_general:,.2f}</b>", st["Der"])])
 
-    tabla = Table(data, repeatRows=1, colWidths=[5.2*cm, 8.7*cm, 4.6*cm])
+    tabla = Table(data, repeatRows=1, colWidths=[4.3*cm, 2.5*cm, 1.2*cm, 2.4*cm, 5.0*cm, 2.4*cm])
     tabla.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, 0), AZUL),
         ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
@@ -182,7 +192,7 @@ def generar_pdf_milab(detalles, sucursal, desde, hasta):
         ("ROWBACKGROUNDS", (0, 1), (-1, -2), [colors.white, AZUL_CLARO]),
         ("BACKGROUND", (0, -1), (-1, -1), AZUL_CLARO),
         ("BOX", (0, -1), (-1, -1), 0.8, AZUL),
-        ("SPAN", (0, -1), (1, -1)),
+        ("SPAN", (0, -1), (4, -1)),
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
         ("TOPPADDING", (0, 0), (-1, -1), 7),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
@@ -219,6 +229,10 @@ def generar_pdf_reporte_lc(detalles, sucursal, desde, hasta):
     ]
     data = [[Paragraph("<b>Folio</b>", st["Cen"]),
              Paragraph("<b>Fecha</b>", st["Cen"]),
+             Paragraph("<b>Paciente</b>", st["Cen"]),
+             Paragraph("<b>F. nacimiento</b>", st["Cen"]),
+             Paragraph("<b>Edad</b>", st["Cen"]),
+             Paragraph("<b>Celular</b>", st["Cen"]),
              Paragraph("<b>Total</b>", st["Cen"]),
              Paragraph("<b>Descuento</b>", st["Cen"]),
              Paragraph("<b>Cobrado</b>", st["Cen"]),
@@ -229,19 +243,23 @@ def generar_pdf_reporte_lc(detalles, sucursal, desde, hasta):
         data.append([
             Paragraph(escape(str(r["folio"] or "")), st["Sm"]),
             Paragraph(escape(fecha), st["Sm"]),
+            Paragraph(escape(str(r.get("paciente") or "—")), st["Sm"]),
+            Paragraph(escape(str(r.get("fecha_nacimiento") or "—")), st["Sm"]),
+            Paragraph(escape(str(r.get("edad") or "—")), st["Cen"]),
+            Paragraph(escape(str(r.get("telefono") or "—")), st["Sm"]),
             Paragraph(f"${float(r['total'] or 0):,.2f}", st["Der"]),
             Paragraph(f"${descuento:,.2f}", st["Der"]),
             Paragraph(f"${float(r['monto_recibido'] or 0):,.2f}", st["Der"]),
             Paragraph(escape(str(r["estado_pago"] or "")), st["Sm"]),
         ])
     if not detalles:
-        data.append([Paragraph("Sin operaciones confirmadas en el periodo.", st["Sm"]), "", "", "", "", ""])
-    data.append([Paragraph("<b>TOTALES</b>", st["Sm"]), "",
+        data.append([Paragraph("Sin operaciones confirmadas en el periodo.", st["Sm"]), "", "", "", "", "", "", "", "", ""])
+    data.append([Paragraph("<b>TOTALES</b>", st["Sm"]), "", "", "", "", "",
                  Paragraph(f"<b>${total_ventas:,.2f}</b>", st["Der"]),
                  Paragraph(f"<b>${total_descuentos:,.2f}</b>", st["Der"]),
                  Paragraph(f"<b>${total_cobrado:,.2f}</b>", st["Der"]),
                  ""])
-    tabla = Table(data, repeatRows=1, colWidths=[2.5*cm, 3.1*cm, 2.8*cm, 2.5*cm, 2.8*cm, 2.6*cm])
+    tabla = Table(data, repeatRows=1, colWidths=[1.5*cm, 2.0*cm, 3.0*cm, 2.0*cm, 1.0*cm, 2.0*cm, 1.8*cm, 1.7*cm, 1.8*cm, 1.5*cm])
     tabla.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, 0), AZUL), ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
         ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#aab7b8")),
