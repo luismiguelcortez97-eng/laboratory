@@ -305,6 +305,7 @@ async def registrar_pago(request: Request, venta_id: int = Form(...), monto: flo
     flash(request, f"Pago registrado. Estado: {estado}")
     return RedirectResponse(f"/diario?sucursal_id={venta['sucursal_id']}", status_code=303)
 
+
 @app.post("/diario/eliminar")
 async def eliminar_operacion(
     request: Request,
@@ -317,24 +318,23 @@ async def eliminar_operacion(
         return RedirectResponse("/login", status_code=303)
 
     venta = db.fetchone(
-        "SELECT * FROM ventas WHERE id=? AND sucursal_id=?",
+        "SELECT id, activo FROM ventas WHERE id=? AND sucursal_id=?",
         (venta_id, sucursal_id)
     )
 
-    if not venta:
-        flash(request, "La operación no existe en esta sucursal.", "danger")
-    elif venta["estado_pago"] == "CANCELADO":
-        flash(request, "Esta operación ya está cancelada.", "warning")
+    if not venta or not venta["activo"]:
+        flash(request, "La operación no existe o ya fue retirada.", "danger")
     else:
         db.execute(
             """UPDATE ventas
-               SET estado_pago='CANCELADO', updated_at=?
-               WHERE id=? AND sucursal_id=?""",
+               SET activo=0, estado_pago='CANCELADO', updated_at=?
+               WHERE id=? AND sucursal_id=? AND activo=1""",
             (now_iso(), venta_id, sucursal_id)
         )
+
         flash(
             request,
-            "Operación cancelada. Se conservó el historial de pagos.",
+            "Operación retirada del Registro diario. Se conservó el historial.",
             "success"
         )
 
@@ -343,6 +343,7 @@ async def eliminar_operacion(
         destino += f"&fecha={fecha}"
 
     return RedirectResponse(destino, status_code=303)
+
 
 @app.get("/catalogo", response_class=HTMLResponse)
 async def catalogo(request: Request, sucursal_id: int = 0):
