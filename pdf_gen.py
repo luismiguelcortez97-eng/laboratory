@@ -6,7 +6,7 @@ from reportlab.lib.pagesizes import letter
 from reportlab.lib.units import cm
 from reportlab.lib import colors
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, HRFlowable
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, HRFlowable, KeepTogether
 from reportlab.lib.enums import TA_CENTER, TA_RIGHT
 
 from database import DOCS_DIR
@@ -30,7 +30,7 @@ def _styles():
     return s
 
 
-def generar_pdf_venta(venta, detalles, paciente, sucursal, empleado):
+def generar_pdf_venta(venta, detalles, paciente, sucursal, empleado, observaciones=""):
     folio = venta.get("folio", "X")
     ts = ahora_local().strftime("%Y%m%d_%H%M%S")
     path = DOCS_DIR / f"Venta_{folio}_{ts}.pdf"
@@ -117,6 +117,20 @@ def generar_pdf_venta(venta, detalles, paciente, sucursal, empleado):
         ("TOPPADDING", (0, 0), (-1, -1), 4), ("LEFTPADDING", (0, 0), (-1, -1), 8),
     ]))
     story.append(tt)
+
+    # Notas escritas por el usuario para esta cotización/venta.
+    # Se escapan caracteres HTML y se conservan los saltos de línea en el PDF.
+    nota = str(observaciones or venta.get("observaciones") or "").strip()
+    if nota:
+        from xml.sax.saxutils import escape
+        nota_html = escape(nota).replace("\\n", "<br/>")
+        bloque_nota = [
+            Paragraph("Notas / Observaciones", st["Sec"]),
+            Paragraph(nota_html, st["Sm"]),
+            Spacer(1, 8),
+        ]
+        story.append(KeepTogether(bloque_nota))
+
     story.append(Spacer(1, 20))
     story.append(HRFlowable(width="100%", thickness=0.5, color=GRIS, spaceAfter=6))
     story.append(Paragraph("Documento generado por LC Lab. Conserve este comprobante.", st["Cen"]))
