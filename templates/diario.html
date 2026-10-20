@@ -1,23 +1,6 @@
 
 {% extends "base.html" %}
-{% block title %}Registro Diario — LC Lab
-<!-- Ventana con los datos completos del paciente -->
-<div class="modal fade" id="modalDatosPacienteDiario" tabindex="-1" aria-hidden="true">
-  <div class="modal-dialog modal-dialog-centered modal-lg modal-dialog-scrollable">
-    <div class="modal-content">
-      <div class="modal-header">
-        <h5 class="modal-title"><i class="bi bi-person-vcard me-2"></i>Datos del paciente</h5>
-        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
-      </div>
-      <div class="modal-body" id="contenidoDatosPacienteDiario">
-        <div class="text-center py-4">Cargando datos del paciente…</div>
-      </div>
-      <div class="modal-footer"><button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cerrar</button></div>
-    </div>
-  </div>
-</div>
-{% endblock %}
-
+{% block title %}Registro Diario — LC Lab{% endblock %}
 {% block extra_js %}
 <script>
 async function verDatosPacienteDiario(id) {
@@ -383,4 +366,22 @@ async function verDatosPacienteDiario(id) {
 
 </div>
 
+
+
+<!-- Ventana con los datos completos del paciente -->
+<div class="modal fade" id="modalDatosPacienteDiario" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-person-vcard me-2"></i>Datos del paciente</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body" id="contenidoDatosPacienteDiario">
+        <div class="text-center py-4">Cargando datos del paciente…</div>
+      </div>
+      <div class="modal-footer"><button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cerrar</button></div>
+    </div>
+  </div>
+</div>
+{% endblock %}
 {% endblock %}
