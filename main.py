@@ -459,6 +459,14 @@ async def confirmar_registro_diario(
     ids = [str(row["id"]) for row in db.fetchall(sql, params)]
     ids_guardados = ",".join(ids)
 
+    # La confirmación general del día también marca cada operación como confirmada,
+    # para que los reportes nuevos basados en la marca individual sigan funcionando.
+    for id_confirmado in ids:
+        db.execute(
+            "UPDATE ventas SET confirmado=1, updated_at=? WHERE id=? AND sucursal_id=? AND COALESCE(activo, 0)=1",
+            (now_iso(), int(id_confirmado), sucursal_id)
+        )
+
     existente = db.fetchone(
         "SELECT venta_ids FROM cierres_diarios WHERE sucursal_id=? AND fecha=?",
         (sucursal_id, fecha)
