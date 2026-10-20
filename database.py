@@ -165,6 +165,26 @@ class Database:
     def __init__(self, db_path=None):
         self.use_postgres = bool(DATABASE_URL) and db_path is None
         self.db_path = Path(db_path) if db_path else DB_PATH
+        self.pool = None
+
+        if self.use_postgres:
+            try:
+                from psycopg.rows import dict_row
+                from psycopg_pool import ConnectionPool
+            except ImportError as exc:
+                raise RuntimeError(
+                    "Falta instalar psycopg[binary]>=3.2.0 y psycopg-pool>=3.2.0"
+                ) from exc
+
+            # Reutiliza conexiones a PostgreSQL en vez de abrir una nueva
+            # para cada consulta de cada página.
+            self.pool = ConnectionPool(
+                conninfo=DATABASE_URL,
+                min_size=1,
+                max_size=5,
+                kwargs={"row_factory": dict_row},
+                open=True,
+            )
 
         if not self.use_postgres:
             self.db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -196,22 +216,24 @@ class Database:
 
     @contextmanager
     def cursor(self):
-        conn = self._connect()
+        if self.use_postgres:
+            # El pool gestiona commit/rollback y devuelve la conexión
+            # al conjunto reutilizable al salir del bloque.
+            with self.pool.connection() as conn:
+                with conn.cursor() as cursor_real:
+                    cur = CursorCompatible(cursor_real, postgres=True)
+                    yield cur
+            return
 
+        conn = self._connect()
         try:
             cursor_real = conn.cursor()
-            cur = CursorCompatible(
-                cursor_real,
-                postgres=self.use_postgres,
-            )
-
+            cur = CursorCompatible(cursor_real, postgres=False)
             yield cur
             conn.commit()
-
         except Exception:
             conn.rollback()
             raise
-
         finally:
             conn.close()
 
