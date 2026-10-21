@@ -611,7 +611,7 @@ async def catalogo_restaurar(
     user = get_user(request)
     if not user:
         return RedirectResponse("/login", status_code=303)
-    if user.get("rol") != "Administrador":
+    if user["rol"] != "Administrador":
         raise HTTPException(status_code=403, detail="Solo el administrador puede restaurar el catálogo.")
     if not archivo.filename or not archivo.filename.lower().endswith(".json"):
         flash(request, "Selecciona un archivo de respaldo .json válido.", "danger")
