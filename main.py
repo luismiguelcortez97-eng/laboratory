@@ -1012,6 +1012,8 @@ async def config_page(request: Request):
     user = get_user(request)
     if not user:
         return RedirectResponse("/login", status_code=303)
+    if user["rol"] != "Administrador":
+        raise HTTPException(status_code=403, detail="Solo el administrador puede acceder a configuración.")
     return templates.TemplateResponse(request, "config.html", {"user": user, "flashes": get_flashes(request),
         "sucursales": db.fetchall("SELECT s.*, c.codigo FROM sucursales s LEFT JOIN codigos_autorizacion c ON c.sucursal_id=s.id WHERE s.activa=1")})
 
