@@ -1,15 +1,42 @@
 {% extends "base.html" %}
 {% block title %}Catálogo — LC Lab{% endblock %}
 {% block content %}
+<style>
+  @media screen {
+    .catalogo-tools { display:flex; flex-wrap:wrap; gap:.5rem; align-items:center; }
+  }
+  @media print {
+    @page { size: auto; margin: 12mm; }
+    body { background:#fff !important; color:#000 !important; }
+    .no-print, nav, aside, .sidebar, .navbar, form, button, .btn { display:none !important; }
+    .container, .container-fluid, main, .card, .table-responsive { width:100% !important; max-width:100% !important; margin:0 !important; padding:0 !important; border:0 !important; box-shadow:none !important; overflow:visible !important; }
+    table { width:100% !important; border-collapse:collapse !important; font-size:10pt !important; }
+    th, td { color:#000 !important; border:1px solid #555 !important; padding:5px !important; }
+    h4 { color:#000 !important; }
+  }
+</style>
 <h4 class="mb-3" style="color:#1a5276">Catálogo de Estudios</h4>
-<form method="get" class="mb-3">
+
+<div class="catalogo-tools no-print mb-3">
+  <button type="button" class="btn btn-dark btn-sm" onclick="window.print()">Imprimir / Guardar PDF</button>
+  <a class="btn btn-outline-primary btn-sm" href="/catalogo/respaldo.json?sucursal_id={{ sucursal_id }}">Descargar respaldo del catálogo (.json)</a>
+  {% if user.rol == "Administrador" %}
+  <form method="post" action="/catalogo/restaurar" enctype="multipart/form-data" class="d-flex flex-wrap gap-2 align-items-center">
+    <input type="hidden" name="sucursal_id" value="{{ sucursal_id }}">
+    <input type="file" name="archivo" accept=".json,application/json" class="form-control form-control-sm" style="max-width:250px" required>
+    <button type="submit" class="btn btn-outline-danger btn-sm">Restaurar respaldo</button>
+  </form>
+  {% endif %}
+</div>
+
+<form method="get" class="mb-3 no-print">
   <select name="sucursal_id" class="form-select form-select-sm" style="max-width:250px" onchange="this.form.submit()">
     {% for s in sucursales %}
     <option value="{{ s.id }}" {% if s.id==sucursal_id %}selected{% endif %}>{{ s.nombre }}</option>
     {% endfor %}
   </select>
 </form>
-<div class="card card-lc p-3 mb-3">
+<div class="card card-lc p-3 mb-3 no-print">
   <form method="post" action="/catalogo/guardar" class="row g-2">
     <input type="hidden" name="sucursal_id" value="{{ sucursal_id }}">
     <input type="hidden" name="estudio_id" id="est_id" value="">
@@ -29,7 +56,7 @@
 <div class="card card-lc p-3">
   <div class="table-responsive">
     <table class="table table-sm table-hover table-lc">
-      <thead><tr><th>Clave</th><th>Nombre</th><th>Precio</th><th>Costo</th><th>Margen</th><th>Estado</th><th></th></tr></thead>
+      <thead><tr><th>Clave</th><th>Nombre</th><th>Precio</th><th>Costo</th><th>Margen</th><th>Estado</th><th class="no-print"></th></tr></thead>
       <tbody>
         {% for e in estudios %}
         <tr>
@@ -39,7 +66,7 @@
           <td>{{ e.costo_insumo | money }}</td>
           <td>{{ (e.precio_venta - e.costo_insumo) | money }}</td>
           <td>{% if e.activo %}<span class="badge bg-success">Activo</span>{% else %}<span class="badge bg-secondary">Inactivo</span>{% endif %}</td>
-          <td>
+          <td class="no-print">
             <button class="btn btn-sm btn-outline-primary py-0" onclick="editar('{{ e.id }}','{{ e.clave }}','{{ e.nombre }}','{{ e.precio_venta }}','{{ e.costo_insumo }}')">Editar</button>
             <form method="post" action="/catalogo/toggle" class="d-inline">
               <input type="hidden" name="estudio_id" value="{{ e.id }}">
