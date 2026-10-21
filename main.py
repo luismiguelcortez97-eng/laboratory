@@ -249,15 +249,48 @@ async def pacientes_guardar(request: Request, nombre_completo: str = Form(...), 
     if not nombre_completo.strip():
         flash(request, "El nombre es obligatorio", "danger")
         return RedirectResponse("/pacientes", status_code=303)
-    folio = db.generar_folio("P")
-    db.execute(
-        """INSERT INTO pacientes (folio, nombre_completo, edad, sexo, fecha_nacimiento, telefono,
-           sucursal_id, empleado_id, fecha_registro, fecha_entrega_resultados, modalidad_entrega,
-           observaciones, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-        (folio, nombre_completo.strip(), safe_int(edad) if edad else None, sexo or None,
-         fecha_nacimiento or None, telefono or None, sucursal_id, empleado_id, now_iso(),
-         fecha_entrega or None, modalidad or None, observaciones or None, now_iso()))
-    flash(request, f"Paciente registrado. Folio: {folio}")
+    datos = (
+        nombre_completo.strip(), safe_int(edad) if edad else None, sexo or None,
+        fecha_nacimiento or None, telefono or None, sucursal_id, empleado_id,
+        fecha_entrega or None, modalidad or None, observaciones or None, now_iso()
+    )
+    id_edicion = safe_int(paciente_id)
+    if id_edicion:
+        existente = db.fetchone("SELECT id, folio FROM pacientes WHERE id=? AND activo=1", (id_edicion,))
+        if not existente:
+            flash(request, "No se encontró el paciente que deseas editar.", "danger")
+            return RedirectResponse("/pacientes", status_code=303)
+        db.execute(
+            """UPDATE pacientes SET nombre_completo=?, edad=?, sexo=?, fecha_nacimiento=?, telefono=?,
+               sucursal_id=?, empleado_id=?, fecha_entrega_resultados=?, modalidad_entrega=?,
+               observaciones=?, updated_at=? WHERE id=? AND activo=1""",
+            datos + (id_edicion,)
+        )
+        flash(request, f"Paciente {existente['folio']} actualizado correctamente.")
+    else:
+        folio = db.generar_folio("P")
+        db.execute(
+            """INSERT INTO pacientes (folio, nombre_completo, edad, sexo, fecha_nacimiento, telefono,
+               sucursal_id, empleado_id, fecha_registro, fecha_entrega_resultados, modalidad_entrega,
+               observaciones, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (folio, *datos[:-1], now_iso(), datos[-1])
+        )
+        flash(request, f"Paciente registrado. Folio: {folio}")
+    return RedirectResponse("/pacientes", status_code=303)
+
+
+@app.post("/pacientes/eliminar")
+async def pacientes_eliminar(request: Request, paciente_id: int = Form(...)):
+    user = get_user(request)
+    if not user:
+        return RedirectResponse("/login", status_code=303)
+    paciente = db.fetchone("SELECT folio FROM pacientes WHERE id=? AND activo=1", (paciente_id,))
+    if not paciente:
+        flash(request, "El paciente no existe o ya fue eliminado.", "danger")
+        return RedirectResponse("/pacientes", status_code=303)
+    # Baja lógica: conserva el historial relacionado con ventas y pagos.
+    db.execute("UPDATE pacientes SET activo=0, updated_at=? WHERE id=? AND activo=1", (now_iso(), paciente_id))
+    flash(request, f"Paciente {paciente['folio']} eliminado de la lista. Su historial se conserva.")
     return RedirectResponse("/pacientes", status_code=303)
 
 @app.get("/cotizacion", response_class=HTMLResponse)
