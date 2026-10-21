@@ -19,6 +19,43 @@ function campoPaciente(etiqueta, valor) {
   cont.append(label, dato);
   return cont;
 }
+async function cargarPacienteEdicion(id) {
+  try {
+    const resp = await fetch('/api/pacientes/' + encodeURIComponent(id), {headers:{'Accept':'application/json'}});
+    if (!resp.ok) throw new Error('No fue posible cargar el paciente para editar.');
+    const p = await resp.json();
+    document.getElementById('paciente_id').value = p.id;
+    document.getElementById('nombre').value = p.nombre_completo || '';
+    document.getElementById('edad').value = p.edad ?? '';
+    document.getElementById('sexo').value = p.sexo || '';
+    document.getElementById('fnac').value = p.fecha_nacimiento || '';
+    document.getElementById('telefono').value = p.telefono || '';
+    document.getElementById('sucursalPaciente').value = p.sucursal_id || '';
+    document.getElementById('empleadoPaciente').value = p.empleado_id || '';
+    document.getElementById('fechaEntregaPaciente').value = p.fecha_entrega_resultados || '';
+    document.getElementById('modalidadPaciente').value = p.modalidad_entrega || '';
+    document.getElementById('observacionesPaciente').value = p.observaciones || '';
+    document.getElementById('tituloFormularioPaciente').textContent = 'Editar paciente · ' + (p.folio || '');
+    document.getElementById('botonGuardarPaciente').innerHTML = '<i class="bi bi-save"></i> Guardar cambios';
+    document.getElementById('botonCancelarEdicion').classList.remove('d-none');
+    document.getElementById('nombre').focus();
+    window.scrollTo({top:0,behavior:'smooth'});
+  } catch(error) { alert(error.message || 'Error al cargar el paciente.'); }
+}
+function cancelarEdicionPaciente() {
+  const form = document.getElementById('formularioPaciente');
+  form.reset();
+  document.getElementById('paciente_id').value = '';
+  document.getElementById('tituloFormularioPaciente').textContent = 'Registro de Pacientes';
+  document.getElementById('botonGuardarPaciente').innerHTML = '<i class="bi bi-save"></i> Guardar';
+  document.getElementById('botonCancelarEdicion').classList.add('d-none');
+}
+function confirmarEliminarPaciente(id, folio, nombre) {
+  if (!confirm('¿Eliminar al paciente ' + nombre + ' (' + folio + ')? Se ocultará de la lista, pero se conservará el historial de ventas y pagos.')) return;
+  const form = document.getElementById('formEliminarPaciente');
+  document.getElementById('pacienteEliminarId').value = id;
+  form.submit();
+}
 async function verDatosPaciente(id) {
   const cont = document.getElementById('contenidoDatosPaciente');
   cont.replaceChildren();
@@ -108,9 +145,9 @@ async function verDatosPaciente(id) {
 </script>
 {% endblock %}
 {% block content %}
-<h4 class="mb-3" style="color:#1a5276">Registro de Pacientes</h4>
+<h4 id="tituloFormularioPaciente" class="mb-3" style="color:#1a5276">Registro de Pacientes</h4>
 <div class="card card-lc p-3 mb-3">
-  <form method="post" action="/pacientes/guardar" class="row g-2">
+  <form method="post" action="/pacientes/guardar" id="formularioPaciente" class="row g-2">
     <input type="hidden" name="paciente_id" id="paciente_id" value="">
     <div class="col-md-4">
       <label class="form-label small">Nombre completo *</label>
@@ -137,30 +174,31 @@ async function verDatosPaciente(id) {
     </div>
     <div class="col-md-3">
       <label class="form-label small">Sucursal *</label>
-      <select name="sucursal_id" class="form-select form-select-sm" required>
+      <select name="sucursal_id" id="sucursalPaciente" class="form-select form-select-sm" required>
         {% for s in sucursales %}<option value="{{ s.id }}">{{ s.nombre }}</option>{% endfor %}
       </select>
     </div>
     <div class="col-md-3">
       <label class="form-label small">Empleado *</label>
-      <select name="empleado_id" class="form-select form-select-sm" required>
+      <select name="empleado_id" id="empleadoPaciente" class="form-select form-select-sm" required>
         {% for e in empleados %}<option value="{{ e.id }}">{{ e.nombre_completo }}</option>{% endfor %}
       </select>
     </div>
     <div class="col-md-2">
       <label class="form-label small">Entrega resultados</label>
-      <input type="text" name="fecha_entrega" class="form-control form-control-sm" placeholder="Fecha o texto">
+      <input type="text" name="fecha_entrega" id="fechaEntregaPaciente" class="form-control form-control-sm" placeholder="Fecha o texto">
     </div>
     <div class="col-md-2">
       <label class="form-label small">Modalidad</label>
-      <input type="text" name="modalidad" class="form-control form-control-sm" placeholder="Presencial / WhatsApp">
+      <input type="text" name="modalidad" id="modalidadPaciente" class="form-control form-control-sm" placeholder="Presencial / WhatsApp">
     </div>
     <div class="col-md-2">
       <label class="form-label small">Observaciones</label>
-      <input type="text" name="observaciones" class="form-control form-control-sm">
+      <input type="text" name="observaciones" id="observacionesPaciente" class="form-control form-control-sm">
     </div>
     <div class="col-12 mt-2">
-      <button type="submit" class="btn btn-lc btn-sm"><i class="bi bi-save"></i> Guardar</button>
+      <button type="submit" id="botonGuardarPaciente" class="btn btn-lc btn-sm"><i class="bi bi-save"></i> Guardar</button>
+      <button type="button" id="botonCancelarEdicion" class="btn btn-outline-secondary btn-sm d-none" onclick="cancelarEdicionPaciente()">Cancelar edición</button>
       <a href="/cotizacion" class="btn btn-outline-secondary btn-sm">Ir a cotización</a>
     </div>
   </form>
@@ -176,7 +214,7 @@ async function verDatosPaciente(id) {
   <div class="table-responsive">
     <table class="table table-sm table-hover table-lc">
       <thead><tr>
-        <th>Folio</th><th>Nombre</th><th>Edad</th><th>Sexo</th><th>Teléfono</th><th>Sucursal</th><th>Registro</th><th>Ficha</th>
+        <th>Folio</th><th>Nombre</th><th>Edad</th><th>Sexo</th><th>Teléfono</th><th>Sucursal</th><th>Registro</th><th>Acciones</th>
       </tr></thead>
       <tbody>
         {% for p in pacientes %}
@@ -188,7 +226,7 @@ async function verDatosPaciente(id) {
           <td>{{ p.telefono or '—' }}</td>
           <td>{{ p.sucursal }}</td>
           <td>{{ p.fecha_registro | dt }}</td>
-          <td><button type="button" class="btn btn-sm btn-outline-primary" onclick="verDatosPaciente({{ p.id }})">Ver datos</button></td>
+          <td class="text-nowrap"><button type="button" class="btn btn-sm btn-outline-primary mb-1" onclick="verDatosPaciente({{ p.id }})">Ficha</button> <button type="button" class="btn btn-sm btn-outline-warning mb-1" onclick="cargarPacienteEdicion({{ p.id }})">Editar</button> <button type="button" class="btn btn-sm btn-outline-danger mb-1" onclick="confirmarEliminarPaciente({{ p.id }}, {{ p.folio|tojson }}, {{ p.nombre_completo|tojson }})">Eliminar</button></td>
         </tr>
         {% else %}
         <tr><td colspan="8" class="text-muted text-center">Sin pacientes</td></tr>
@@ -198,6 +236,8 @@ async function verDatosPaciente(id) {
   </div>
 </div>
 
+
+<form method="post" action="/pacientes/eliminar" id="formEliminarPaciente" class="d-none"><input type="hidden" name="paciente_id" id="pacienteEliminarId"></form>
 
 <!-- Ficha completa del paciente -->
 <div class="modal fade" id="modalDatosPaciente" tabindex="-1" aria-hidden="true">
