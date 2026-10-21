@@ -226,7 +226,7 @@ async function verDatosPaciente(id) {
           <td>{{ p.telefono or '—' }}</td>
           <td>{{ p.sucursal }}</td>
           <td>{{ p.fecha_registro | dt }}</td>
-          <td class="text-nowrap"><button type="button" class="btn btn-sm btn-outline-primary mb-1" onclick="verDatosPaciente({{ p.id }})">Ficha</button> <button type="button" class="btn btn-sm btn-outline-warning mb-1" onclick="cargarPacienteEdicion({{ p.id }})">Editar</button> <button type="button" class="btn btn-sm btn-outline-danger mb-1" onclick="confirmarEliminarPaciente({{ p.id }}, {{ p.folio|tojson }}, {{ p.nombre_completo|tojson }})">Eliminar</button></td>
+          <td class="text-nowrap"><button type="button" class="btn btn-sm btn-outline-primary mb-1" onclick="verDatosPaciente({{ p.id }})">Ficha</button> <button type="button" class="btn btn-sm btn-outline-warning mb-1" onclick="cargarPacienteEdicion({{ p.id }})">Editar</button> <button type="button" class="btn btn-sm btn-outline-danger mb-1" data-folio="{{ p.folio }}" data-nombre="{{ p.nombre_completo }}" onclick="confirmarEliminarPaciente({{ p.id }}, this.dataset.folio, this.dataset.nombre)">Eliminar</button></td>
         </tr>
         {% else %}
         <tr><td colspan="8" class="text-muted text-center">Sin pacientes</td></tr>
