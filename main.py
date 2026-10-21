@@ -947,20 +947,26 @@ async def balance_page(request: Request, fecha: str = "", modo: str = "diario"):
         d = date.fromisoformat(fecha)
     except Exception:
         d = ahora_local().date()
-    if modo == "semanal":
+    if modo == "mensual":
+        inicio = d.replace(day=1)
+        siguiente_mes = (inicio.replace(day=28) + timedelta(days=4)).replace(day=1)
+        fin = siguiente_mes - timedelta(days=1)
+        desde, hasta = inicio.isoformat(), fin.isoformat()
+        titulo = f"Balance Mensual — {inicio.strftime('%B de %Y')}"
+    elif modo == "semanal":
         inicio = d - timedelta(days=d.weekday())
         fin = inicio + timedelta(days=6)
         desde, hasta = inicio.isoformat(), fin.isoformat()
         titulo = f"Balance Semanal — {desde} a {hasta}"
     else:
-        desde = hasta = fecha
-        titulo = f"Balance Diario — {fecha}"
+        desde = hasta = d.isoformat()
+        titulo = f"Balance Diario — {desde}"
     datos, total_g_v, total_g_c = [], 0, 0
     for suc in db.fetchall("SELECT * FROM sucursales WHERE activa=1"):
         rows = db.fetchall(
             """SELECT v.total, v.monto_recibido, v.estado_pago, v.metodo_pago, e.nombre_completo as emp
                FROM ventas v LEFT JOIN empleados e ON e.id=v.empleado_id
-               WHERE v.sucursal_id=? AND date(v.fecha_hora) BETWEEN ? AND ? AND COALESCE(v.activo, 0)=1 AND UPPER(TRIM(COALESCE(v.estado_pago, ''))) NOT IN ('CANCELADO', 'CANCELADA', 'CANCELLED', 'CANCEL', 'ANULADO', 'ANULADA')""",
+               WHERE v.sucursal_id=? AND date(v.fecha_hora) BETWEEN ? AND ? AND COALESCE(v.activo, 0)=1 AND UPPER(TRIM(COALESCE(v.estado_pago, ''))) NOT IN ('COTIZACION', 'CANCELADO', 'CANCELADA', 'CANCELLED', 'CANCEL', 'ANULADO', 'ANULADA')""",
             (suc["id"], desde, hasta))
         ventas = sum(r["total"] or 0 for r in rows)
         cobrado = sum(r["monto_recibido"] or 0 for r in rows)
@@ -974,7 +980,7 @@ async def balance_page(request: Request, fecha: str = "", modo: str = "diario"):
         costos = db.fetchone(
             """SELECT COALESCE(SUM(vd.cantidad*vd.costo_unitario),0) as c FROM venta_detalles vd
                JOIN ventas v ON v.id=vd.venta_id WHERE v.sucursal_id=? AND date(v.fecha_hora) BETWEEN ? AND ?
-               AND COALESCE(v.activo, 0)=1 AND UPPER(TRIM(COALESCE(v.estado_pago, ''))) NOT IN ('CANCELADO', 'CANCELADA', 'CANCELLED', 'CANCEL', 'ANULADO', 'ANULADA')""", (suc["id"], desde, hasta))
+               AND COALESCE(v.activo, 0)=1 AND UPPER(TRIM(COALESCE(v.estado_pago, ''))) NOT IN ('COTIZACION', 'CANCELADO', 'CANCELADA', 'CANCELLED', 'CANCEL', 'ANULADO', 'ANULADA')""", (suc["id"], desde, hasta))
         costo_est = costos["c"] if costos else 0
         datos.append({"nombre": suc["nombre"], "ventas": ventas, "cobrado": cobrado, "pendiente": pend,
             "costos": costo_est, "margen": ventas - costo_est, "por_met": por_met, "por_emp": por_emp})
