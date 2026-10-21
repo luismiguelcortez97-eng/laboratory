@@ -64,10 +64,10 @@
       <li class="nav-item"><a class="nav-link {% if '/diario' in request.url.path %}active{% endif %}" href="/diario"><i class="bi bi-calendar3"></i> Registro Diario</a></li>
       <li class="nav-item"><a class="nav-link {% if '/catalogo' in request.url.path %}active{% endif %}" href="/catalogo"><i class="bi bi-flask"></i> Catálogo</a></li>
       <li class="nav-item"><a class="nav-link {% if '/costos' in request.url.path %}active{% endif %}" href="/costos"><i class="bi bi-cash-stack"></i> Costos</a></li>
-      <li class="nav-item"><a class="nav-link {% if '/empleados' in request.url.path %}active{% endif %}" href="/empleados"><i class="bi bi-people"></i> Empleados</a></li>
+      {% if user and user.rol == "Administrador" %}<li class="nav-item"><a class="nav-link {% if '/empleados' in request.url.path %}active{% endif %}" href="/empleados"><i class="bi bi-people"></i> Empleados</a></li>{% endif %}
       <li class="nav-item"><a class="nav-link {% if '/reportes' in request.url.path %}active{% endif %}" href="/reportes"><i class="bi bi-file-earmark-bar-graph"></i> Reportes</a></li>
       <li class="nav-item"><a class="nav-link {% if '/balance' in request.url.path %}active{% endif %}" href="/balance"><i class="bi bi-pie-chart"></i> Balance</a></li>
-      <li class="nav-item"><a class="nav-link {% if '/config' in request.url.path %}active{% endif %}" href="/config"><i class="bi bi-gear"></i> Configuración</a></li>
+      {% if user and user.rol == "Administrador" %}<li class="nav-item"><a class="nav-link {% if '/config' in request.url.path %}active{% endif %}" href="/config"><i class="bi bi-gear"></i> Configuración</a></li>{% endif %}
     </ul>
     <div class="user-bar">
       <i class="bi bi-person-circle"></i> {{ user.nombre_completo if user else '' }}<br>
