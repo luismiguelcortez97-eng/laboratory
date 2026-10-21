@@ -273,7 +273,9 @@ async def pacientes_guardar(request: Request, nombre_completo: str = Form(...), 
             """INSERT INTO pacientes (folio, nombre_completo, edad, sexo, fecha_nacimiento, telefono,
                sucursal_id, empleado_id, fecha_registro, fecha_entrega_resultados, modalidad_entrega,
                observaciones, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-            (folio, *datos[:-1], now_iso(), datos[-1])
+            (folio, nombre_completo.strip(), safe_int(edad) if edad else None, sexo or None,
+             fecha_nacimiento or None, telefono or None, sucursal_id, empleado_id, now_iso(),
+             fecha_entrega or None, modalidad or None, observaciones or None, now_iso(), now_iso())
         )
         flash(request, f"Paciente registrado. Folio: {folio}")
     return RedirectResponse("/pacientes", status_code=303)
