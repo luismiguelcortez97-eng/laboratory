@@ -45,6 +45,54 @@
     .badge-pendiente { background: #922b21; }
     .badge-parcial { background: #b9770e; }
     .user-bar { font-size: .85rem; color: #90a4ae; padding: .8rem 1.2rem; border-top: 1px solid #2c3e50; margin-top: auto; }
+
+    /* Tema oscuro manual, con contraste estable y sin invertir imágenes ni colores automáticamente. */
+    body.theme-dark { background: #151b23; color: #e5eaf0; color-scheme: dark; }
+    body.theme-dark .main-content { color: #e5eaf0; }
+    body.theme-dark .card-lc,
+    body.theme-dark .kpi-card,
+    body.theme-dark .modal-content,
+    body.theme-dark .dropdown-menu,
+    body.theme-dark .list-group-item {
+      background: #202a36; color: #e5eaf0; border-color: #3b4858;
+    }
+    body.theme-dark .kpi-card .value { color: #8bc4ee; }
+    body.theme-dark .kpi-card .label,
+    body.theme-dark .text-muted,
+    body.theme-dark .form-text { color: #b5c0cd !important; }
+    body.theme-dark .form-control,
+    body.theme-dark .form-select,
+    body.theme-dark .input-group-text {
+      background-color: #18212b; color: #f1f5f9; border-color: #536273;
+    }
+    body.theme-dark .form-control::placeholder { color: #a6b2c0; }
+    body.theme-dark .form-control:focus,
+    body.theme-dark .form-select:focus {
+      background-color: #1b2632; color: #fff; border-color: #77b7e5;
+      box-shadow: 0 0 0 .2rem rgba(119,183,229,.18);
+    }
+    body.theme-dark .table { --bs-table-color: #e5eaf0; --bs-table-bg: transparent; --bs-table-border-color: #3b4858; }
+    body.theme-dark .table-hover > tbody > tr:hover > * { --bs-table-color-state: #fff; --bs-table-bg-state: #2a3949; }
+    body.theme-dark .table-lc thead { background: #244b68; color: #fff; }
+    body.theme-dark .table-light,
+    body.theme-dark .bg-light { background-color: #2a3542 !important; color: #e5eaf0 !important; }
+    body.theme-dark .border,
+    body.theme-dark .border-top,
+    body.theme-dark .border-bottom { border-color: #3b4858 !important; }
+    body.theme-dark .btn-close { filter: invert(1) grayscale(100%) brightness(180%); }
+    body.theme-dark .modal-header,
+    body.theme-dark .modal-footer { border-color: #3b4858; }
+    body.theme-dark .list-group-item-action:hover,
+    body.theme-dark .list-group-item-action:focus { background: #2c3b4b; color: #fff; }
+    body.theme-dark .alert-primary { background: #193d58; border-color: #285b7b; color: #e4f3ff; }
+    body.theme-dark .alert-secondary { background: #303b48; border-color: #465466; color: #e5eaf0; }
+    body.theme-dark .alert-success { background: #183d31; border-color: #28664f; color: #d7f8e8; }
+    body.theme-dark .alert-warning { background: #4a3919; border-color: #85652a; color: #fff0c2; }
+    body.theme-dark .alert-danger { background: #4a2529; border-color: #85434b; color: #ffe5e7; }
+    body.theme-dark .btn-outline-secondary { color: #d5dee8; border-color: #8290a0; }
+    body.theme-dark .btn-outline-secondary:hover { color: #fff; background: #3b4858; }
+    body.theme-dark a:not(.nav-link):not(.btn) { color: #8bc4ee; }
+
     @media (max-width: 768px) {
       .sidebar { transform: translateX(-100%); }
       .sidebar.show { transform: translateX(0); }
@@ -77,9 +125,15 @@
   </nav>
 
   <div class="main-content">
-    <button class="btn btn-sm btn-outline-secondary d-md-none mb-2" onclick="document.getElementById('sidebar').classList.toggle('show')">
-      <i class="bi bi-list"></i> Menú
-    </button>
+    <div class="d-flex justify-content-between align-items-center gap-2 mb-2">
+      <button class="btn btn-sm btn-outline-secondary d-md-none" onclick="document.getElementById('sidebar').classList.toggle('show')">
+        <i class="bi bi-list"></i> Menú
+      </button>
+      <span class="d-md-none"></span>
+      <button type="button" id="toggleTema" class="btn btn-sm btn-outline-secondary ms-auto" aria-pressed="false">
+        <i class="bi bi-moon-stars"></i> <span>Modo nocturno</span>
+      </button>
+    </div>
     {% for f in flashes %}
     <div class="alert alert-{{ f.cat }} alert-dismissible fade show py-2" role="alert">
       {{ f.msg }}
@@ -88,6 +142,30 @@
     {% endfor %}
     {% block content %}{% endblock %}
   </div>
+  <script>
+    (function () {
+      const clave = 'lc-lab-tema';
+      const cuerpo = document.body;
+      const boton = document.getElementById('toggleTema');
+      function aplicarTema(oscuro) {
+        cuerpo.classList.toggle('theme-dark', oscuro);
+        if (boton) {
+          boton.setAttribute('aria-pressed', oscuro ? 'true' : 'false');
+          boton.innerHTML = oscuro
+            ? '<i class="bi bi-sun"></i> <span>Modo claro</span>'
+            : '<i class="bi bi-moon-stars"></i> <span>Modo nocturno</span>';
+        }
+      }
+      let guardado = 'claro';
+      try { guardado = localStorage.getItem(clave) || 'claro'; } catch (e) {}
+      aplicarTema(guardado === 'oscuro');
+      if (boton) boton.addEventListener('click', function () {
+        const oscuro = !cuerpo.classList.contains('theme-dark');
+        aplicarTema(oscuro);
+        try { localStorage.setItem(clave, oscuro ? 'oscuro' : 'claro'); } catch (e) {}
+      });
+    })();
+  </script>
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
   {% block extra_js %}{% endblock %}
 </body>
