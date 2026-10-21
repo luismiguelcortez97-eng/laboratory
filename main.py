@@ -1040,6 +1040,8 @@ async def config_cambiar_password(
     user = get_user(request)
     if not user:
         return RedirectResponse("/login", status_code=303)
+    if user["rol"] != "Administrador":
+        raise HTTPException(status_code=403, detail="Solo el administrador puede cambiar la configuración de acceso.")
     if nip.strip() != "2026":
         flash(request, "NIP incorrecto. No se cambió la contraseña.", "danger")
         return RedirectResponse("/config", status_code=303)
