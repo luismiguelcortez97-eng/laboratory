@@ -2,11 +2,12 @@
 """LC Lab Web - Sistema de Laboratorio Clinico"""
 
 import os
+import json
 from pathlib import Path
 from datetime import date, timedelta
 
-from fastapi import FastAPI, Request, Form, HTTPException
-from fastapi.responses import HTMLResponse, RedirectResponse, FileResponse
+from fastapi import FastAPI, Request, Form, HTTPException, UploadFile, File
+from fastapi.responses import HTMLResponse, RedirectResponse, FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from jinja2 import Environment, FileSystemLoader
@@ -573,6 +574,98 @@ async def catalogo(request: Request, sucursal_id: int = 0):
     return templates.TemplateResponse(request, "catalogo.html", {"user": user, "flashes": get_flashes(request),
         "estudios": estudios, "sucursales": sucursales, "sucursal_id": sucursal_id,
     })
+
+@app.get("/catalogo/respaldo.json")
+async def catalogo_respaldo(request: Request, sucursal_id: int = 0):
+    user = get_user(request)
+    if not user:
+        return RedirectResponse("/login", status_code=303)
+    suc = db.fetchone("SELECT id, nombre FROM sucursales WHERE id=? AND activa=1", (sucursal_id,)) if sucursal_id else None
+    if not suc:
+        suc = db.fetchone("SELECT id, nombre FROM sucursales WHERE activa=1 ORDER BY id LIMIT 1")
+    if not suc:
+        raise HTTPException(status_code=404, detail="No hay sucursales activas.")
+    estudios = db.fetchall(
+        "SELECT clave, nombre, precio_venta, costo_insumo, activo FROM estudios WHERE sucursal_id=? ORDER BY nombre",
+        (suc["id"],)
+    )
+    respaldo = {
+        "formato": "lc-lab-catalogo",
+        "version": 1,
+        "sucursal": suc["nombre"],
+        "exportado_en": now_iso(),
+        "estudios": [dict(e) for e in estudios],
+    }
+    return JSONResponse(
+        content=respaldo,
+        headers={"Content-Disposition": 'attachment; filename="respaldo_catalogo_laboratory.json"'}
+    )
+
+
+@app.post("/catalogo/restaurar")
+async def catalogo_restaurar(
+    request: Request,
+    sucursal_id: int = Form(...),
+    archivo: UploadFile = File(...)
+):
+    user = get_user(request)
+    if not user:
+        return RedirectResponse("/login", status_code=303)
+    if user.get("rol") != "Administrador":
+        raise HTTPException(status_code=403, detail="Solo el administrador puede restaurar el catálogo.")
+    if not archivo.filename or not archivo.filename.lower().endswith(".json"):
+        flash(request, "Selecciona un archivo de respaldo .json válido.", "danger")
+        return RedirectResponse(f"/catalogo?sucursal_id={sucursal_id}", status_code=303)
+    try:
+        contenido = await archivo.read()
+        if len(contenido) > 5 * 1024 * 1024:
+            raise ValueError("El archivo supera el límite de 5 MB.")
+        respaldo = json.loads(contenido.decode("utf-8-sig"))
+        if respaldo.get("formato") != "lc-lab-catalogo" or not isinstance(respaldo.get("estudios"), list):
+            raise ValueError("El archivo no corresponde a un respaldo de catálogo LC Lab.")
+        estudios = respaldo["estudios"]
+        if len(estudios) > 10000:
+            raise ValueError("El respaldo contiene demasiados registros.")
+        for e in estudios:
+            if not isinstance(e, dict) or not str(e.get("clave", "")).strip() or not str(e.get("nombre", "")).strip():
+                raise ValueError("Hay estudios sin clave o nombre.")
+            precio = safe_float(e.get("precio_venta"))
+            costo = safe_float(e.get("costo_insumo"))
+            if precio < 0 or costo < 0:
+                raise ValueError("Los precios y costos no pueden ser negativos.")
+        suc = db.fetchone("SELECT id FROM sucursales WHERE id=? AND activa=1", (sucursal_id,))
+        if not suc:
+            raise ValueError("La sucursal seleccionada no existe o está inactiva.")
+        agregados = actualizados = 0
+        for e in estudios:
+            clave = str(e["clave"]).strip()
+            nombre = str(e["nombre"]).strip()
+            precio = safe_float(e.get("precio_venta"))
+            costo = safe_float(e.get("costo_insumo"))
+            activo = 1 if safe_int(e.get("activo"), 1) else 0
+            existente = db.fetchone(
+                "SELECT id FROM estudios WHERE sucursal_id=? AND clave=?",
+                (sucursal_id, clave)
+            )
+            if existente:
+                db.execute(
+                    "UPDATE estudios SET nombre=?, precio_venta=?, costo_insumo=?, activo=?, updated_at=? WHERE id=?",
+                    (nombre, precio, costo, activo, now_iso(), existente["id"])
+                )
+                actualizados += 1
+            else:
+                db.execute(
+                    "INSERT INTO estudios (clave, nombre, precio_venta, costo_insumo, activo, sucursal_id, created_at) VALUES (?,?,?,?,?,?,?)",
+                    (clave, nombre, precio, costo, activo, sucursal_id, now_iso())
+                )
+                agregados += 1
+        flash(request, f"Respaldo restaurado: {agregados} estudios agregados y {actualizados} actualizados. No se eliminaron otros estudios.")
+    except Exception as e:
+        flash(request, f"No se pudo restaurar el respaldo: {e}", "danger")
+    finally:
+        await archivo.close()
+    return RedirectResponse(f"/catalogo?sucursal_id={sucursal_id}", status_code=303)
+
 
 @app.post("/catalogo/guardar")
 async def catalogo_guardar(request: Request, sucursal_id: int = Form(...), clave: str = Form(...),
