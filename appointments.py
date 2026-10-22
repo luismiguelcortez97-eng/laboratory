@@ -25,10 +25,25 @@ def _numero():
 def _url():
  n=_numero()
  return 'https://wa.me/'+n+'?text='+quote('Hola, deseo solicitar una cotización de estudios de laboratorio.') if n else ''
+def _horario_config():
+ def valor(clave, defecto):
+  r=db.fetchone("SELECT valor FROM configuracion_citas WHERE clave=?",(clave,))
+  return str(r['valor']) if r and r['valor'] else defecto
+ return {'inicio':valor('hora_inicio','08:00'),'fin':valor('hora_fin','16:00'),'intervalo':int(valor('intervalo_minutos','30'))}
 def _slots():
- return [f'{h:02d}:{m:02d}' for h in range(8,17) for m in (0,30) if (h,m)!=(16,30)]
+ cfg=_horario_config()
+ inicio=datetime.strptime(cfg['inicio'],'%H:%M')
+ fin=datetime.strptime(cfg['fin'],'%H:%M')
+ paso=cfg['intervalo']
+ actual=inicio
+ slots=[]
+ while actual<fin:
+  slots.append(actual.strftime('%H:%M'))
+  from datetime import timedelta
+  actual += timedelta(minutes=paso)
+ return slots
 def _ctx(request, **kw):
- d={'request':request,'sucursales':db.fetchall("SELECT id,nombre FROM sucursales WHERE activa=1 ORDER BY nombre"),'hoy':today_str(),'whatsapp_url':_url(),'error':None,'cita_guardada':None,'verificacion':None,'verificacion_error':None}
+ d={'request':request,'sucursales':db.fetchall("SELECT id,nombre FROM sucursales WHERE activa=1 ORDER BY nombre"),'hoy':today_str(),'whatsapp_url':_url(),'horario_config':_horario_config(),'error':None,'cita_guardada':None,'verificacion':None,'verificacion_error':None}
  d.update(kw); return d
 
 @router.get('/pedir-cita', response_class=HTMLResponse)
@@ -86,7 +101,7 @@ async def agenda(request:Request,fecha:str='',sucursal_id:int=0):
  if not user: return RedirectResponse('/login',status_code=303)
  fecha=fecha or today_str()
  rows=db.fetchall("SELECT c.folio,c.nombre_completo,c.edad,c.fecha_nacimiento,c.telefono,c.fecha,c.hora,s.nombre AS sucursal FROM citas c JOIN sucursales s ON s.id=c.sucursal_id WHERE c.fecha=? AND (?=0 OR c.sucursal_id=?) ORDER BY c.hora",(fecha,sucursal_id,sucursal_id))
- return templates.TemplateResponse(request,'citas.html',{'request':request,'user':user,'flashes':get_flashes(request),'citas':rows,'fecha':fecha,'sucursal_id':sucursal_id,'sucursales':db.fetchall('SELECT id,nombre FROM sucursales WHERE activa=1 ORDER BY nombre'),'whatsapp_numero':_numero()})
+ return templates.TemplateResponse(request,'citas.html',{'request':request,'user':user,'flashes':get_flashes(request),'citas':rows,'fecha':fecha,'sucursal_id':sucursal_id,'sucursales':db.fetchall('SELECT id,nombre FROM sucursales WHERE activa=1 ORDER BY nombre'),'whatsapp_numero':_numero(),'horario_config':_horario_config()})
 
 @router.post('/citas/whatsapp')
 async def guardar_whatsapp(request:Request,numero:str=Form('')):
@@ -98,4 +113,23 @@ async def guardar_whatsapp(request:Request,numero:str=Form('')):
  if limpio and len(limpio)<10: raise HTTPException(status_code=400,detail='Incluye lada internacional y al menos 10 dígitos.')
  db.execute("INSERT INTO configuracion_citas(clave,valor,updated_at) VALUES(?,?,?) ON CONFLICT(clave) DO UPDATE SET valor=excluded.valor,updated_at=excluded.updated_at",('whatsapp',limpio,now_iso()))
  flash(request,'Número de WhatsApp actualizado.')
+ return RedirectResponse('/citas',status_code=303)
+
+
+@router.post('/citas/horario')
+async def guardar_horario(request:Request,hora_inicio:str=Form(...),hora_fin:str=Form(...),intervalo_minutos:int=Form(...)):
+ from main import get_user,flash
+ user=get_user(request)
+ if not user: return RedirectResponse('/login',status_code=303)
+ if user['rol']!='Administrador': raise HTTPException(status_code=403,detail='Solo el administrador puede cambiar el horario de citas.')
+ try:
+  inicio=datetime.strptime(hora_inicio,'%H:%M')
+  fin=datetime.strptime(hora_fin,'%H:%M')
+ except ValueError:
+  raise HTTPException(status_code=400,detail='Selecciona horas válidas.')
+ if inicio>=fin: raise HTTPException(status_code=400,detail='La hora de cierre debe ser posterior a la hora de inicio.')
+ if intervalo_minutos not in (10,15,20,30,60): raise HTTPException(status_code=400,detail='Selecciona un intervalo válido.')
+ for clave,valor in [('hora_inicio',hora_inicio),('hora_fin',hora_fin),('intervalo_minutos',str(intervalo_minutos))]:
+  db.execute("INSERT INTO configuracion_citas(clave,valor,updated_at) VALUES(?,?,?) ON CONFLICT(clave) DO UPDATE SET valor=excluded.valor,updated_at=excluded.updated_at",(clave,valor,now_iso()))
+ flash(request,'Horario de citas actualizado. El portal público ya usa la nueva configuración.')
  return RedirectResponse('/citas',status_code=303)
