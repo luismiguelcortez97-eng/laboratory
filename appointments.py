@@ -15,7 +15,48 @@ db.execute("""CREATE TABLE IF NOT EXISTS citas (
  id INTEGER PRIMARY KEY AUTOINCREMENT, folio TEXT NOT NULL UNIQUE,
  nombre_completo TEXT NOT NULL, edad INTEGER NOT NULL, fecha_nacimiento TEXT NOT NULL,
  telefono TEXT NOT NULL, sucursal_id INTEGER NOT NULL, fecha TEXT NOT NULL, hora TEXT NOT NULL,
- created_at TEXT NOT NULL, UNIQUE(sucursal_id, fecha, hora))""")
+ created_at TEXT NOT NULL, estado TEXT NOT NULL DEFAULT 'Recibida')""")
+
+# Migración compatible con SQLite y PostgreSQL: conservar citas, añadir estado
+# y permitir que varias personas reserven la misma fecha/hora.
+if db.use_postgres:
+ columnas_citas = db.fetchall("SELECT column_name AS name FROM information_schema.columns WHERE table_name='citas'")
+ if not any(col["name"] == "estado" for col in columnas_citas):
+  db.execute("ALTER TABLE citas ADD COLUMN estado TEXT NOT NULL DEFAULT 'Recibida'")
+ restricciones = db.fetchall("""SELECT tc.constraint_name, array_agg(kcu.column_name ORDER BY kcu.ordinal_position) AS columnas
+  FROM information_schema.table_constraints tc
+  JOIN information_schema.key_column_usage kcu
+    ON tc.constraint_name=kcu.constraint_name AND tc.table_schema=kcu.table_schema
+  WHERE tc.table_name='citas' AND tc.constraint_type='UNIQUE'
+  GROUP BY tc.constraint_name""")
+ for restriccion in restricciones:
+  columnas = restriccion["columnas"]
+  if set(columnas or []) == {"sucursal_id", "fecha", "hora"} and len(columnas) == 3:
+   nombre_restriccion = str(restriccion["constraint_name"]).replace('"', '""')
+   db.execute('ALTER TABLE citas DROP CONSTRAINT "' + nombre_restriccion + '"')
+else:
+ columnas_citas = db.fetchall("PRAGMA table_info(citas)")
+ nombres_citas = {col["name"] for col in columnas_citas}
+ if "estado" not in nombres_citas:
+  db.execute("ALTER TABLE citas ADD COLUMN estado TEXT NOT NULL DEFAULT 'Recibida'")
+ indices_citas = db.fetchall("PRAGMA index_list(citas)")
+ for indice in indices_citas:
+  if indice["unique"]:
+   nombre_indice = str(indice["name"]).replace('"', '""')
+   columnas_indice = db.fetchall('PRAGMA index_info("' + nombre_indice + '")')
+   nombres_indice = [col["name"] for col in columnas_indice]
+   if nombres_indice == ["sucursal_id", "fecha", "hora"]:
+    with db.cursor() as cur:
+     cur.execute("""CREATE TABLE citas_nueva (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, folio TEXT NOT NULL UNIQUE,
+      nombre_completo TEXT NOT NULL, edad INTEGER NOT NULL, fecha_nacimiento TEXT NOT NULL,
+      telefono TEXT NOT NULL, sucursal_id INTEGER NOT NULL, fecha TEXT NOT NULL, hora TEXT NOT NULL,
+      created_at TEXT NOT NULL, estado TEXT NOT NULL DEFAULT 'Recibida')""")
+     cur.execute("""INSERT INTO citas_nueva
+      (id, folio, nombre_completo, edad, fecha_nacimiento, telefono, sucursal_id, fecha, hora, created_at, estado)
+      SELECT id, folio, nombre_completo, edad, fecha_nacimiento, telefono, sucursal_id, fecha, hora, created_at, estado FROM citas""")
+     cur.execute("DROP TABLE citas")
+     cur.execute("ALTER TABLE citas_nueva RENAME TO citas")
 db.execute("""CREATE TABLE IF NOT EXISTS configuracion_citas (
  clave TEXT PRIMARY KEY, valor TEXT NOT NULL DEFAULT '', updated_at TEXT)""")
 
@@ -69,13 +110,11 @@ async def ocupacion(fecha:str,sucursal_id:int):
   raise HTTPException(status_code=400,detail='Ese día no se reciben citas. Elige un día laboral disponible.')
  if not db.fetchone('SELECT id FROM sucursales WHERE id=? AND activa=1',(sucursal_id,)):
   raise HTTPException(status_code=400,detail='Selecciona una sucursal válida.')
- rows=db.fetchall('SELECT hora FROM citas WHERE fecha=? AND sucursal_id=?',(fecha,sucursal_id))
- ocupadas={str(r['hora'])[:5] for r in rows}
  slots=_slots()
  if dia==ahora_local().date():
   slots=[s for s in slots if s>ahora_local().strftime('%H:%M')]
- disponibles=[s for s in slots if s not in ocupadas]
- return {'fecha':fecha,'sucursal_id':sucursal_id,'horarios':disponibles,'ocupadas':sorted(ocupadas)}
+ # Los horarios son reutilizables: una cita no bloquea la hora para otros pacientes.
+ return {'fecha':fecha,'sucursal_id':sucursal_id,'horarios':slots,'ocupadas':[]}
 
 @router.post('/api/citas/guardar',response_class=HTMLResponse)
 async def guardar(request:Request,nombre_completo:str=Form(...),edad:int=Form(...),fecha_nacimiento:str=Form(...),telefono:str=Form(...),sucursal_id:int=Form(...),fecha:str=Form(...),hora:str=Form(...)):
@@ -134,8 +173,39 @@ async def agenda(request:Request,fecha:str='',sucursal_id:int=0,periodo:str='dia
   siguiente=(fin+timedelta(days=1)).replace(day=1)
  else:
   inicio=fin=ancla; anterior=ancla-timedelta(days=1); siguiente=ancla+timedelta(days=1)
- rows=db.fetchall("SELECT c.folio,c.nombre_completo,c.edad,c.fecha_nacimiento,c.telefono,c.fecha,c.hora,s.nombre AS sucursal FROM citas c JOIN sucursales s ON s.id=c.sucursal_id WHERE c.fecha>=? AND c.fecha<=? AND (?=0 OR c.sucursal_id=?) ORDER BY c.fecha,c.hora",(inicio.isoformat(),fin.isoformat(),sucursal_id,sucursal_id))
+ rows=db.fetchall("SELECT c.folio,c.nombre_completo,c.edad,c.fecha_nacimiento,c.telefono,c.fecha,c.hora,c.estado,s.nombre AS sucursal FROM citas c JOIN sucursales s ON s.id=c.sucursal_id WHERE c.fecha>=? AND c.fecha<=? AND (?=0 OR c.sucursal_id=?) ORDER BY c.fecha,c.hora",(inicio.isoformat(),fin.isoformat(),sucursal_id,sucursal_id))
  return templates.TemplateResponse(request,'citas.html',{'request':request,'user':user,'flashes':get_flashes(request),'citas':rows,'fecha':ancla.isoformat(),'fecha_inicio':inicio.isoformat(),'fecha_fin':fin.isoformat(),'fecha_anterior':anterior.isoformat(),'fecha_siguiente':siguiente.isoformat(),'periodo':periodo,'sucursal_id':sucursal_id,'sucursales':db.fetchall('SELECT id,nombre FROM sucursales WHERE activa=1 ORDER BY nombre'),'whatsapp_numero':_numero(),'horario_config':_horario_config()})
+
+@router.post('/citas/confirmar')
+async def confirmar_cita(request:Request,folio:str=Form(...),fecha:str=Form(''),periodo:str=Form('dia'),sucursal_id:int=Form(0)):
+ from main import get_user,flash
+ user=get_user(request)
+ if not user: return RedirectResponse('/login',status_code=303)
+ cita=db.fetchone("SELECT folio FROM citas WHERE folio=?",(folio.strip(),))
+ if not cita:
+  flash(request,'No se encontró esa cita.','danger')
+ else:
+  db.execute("UPDATE citas SET estado='Paciente llegó' WHERE folio=?",(cita['folio'],))
+  flash(request,'Cita marcada como paciente llegó.')
+ destino='/citas?periodo='+quote(periodo if periodo in ('dia','semana','mes') else 'dia')+'&fecha='+quote(fecha or ahora_local().date().isoformat())+'&sucursal_id='+str(max(0,sucursal_id))
+ return RedirectResponse(destino,status_code=303)
+
+
+@router.post('/citas/eliminar')
+async def eliminar_cita(request:Request,folio:str=Form(...),fecha:str=Form(''),periodo:str=Form('dia'),sucursal_id:int=Form(0)):
+ from main import get_user,flash
+ user=get_user(request)
+ if not user: return RedirectResponse('/login',status_code=303)
+ cita=db.fetchone("SELECT folio FROM citas WHERE folio=?",(folio.strip(),))
+ if not cita:
+  flash(request,'No se encontró esa cita o ya fue eliminada.','danger')
+ else:
+  # Eliminar únicamente la cita; el registro del paciente no se toca.
+  db.execute("DELETE FROM citas WHERE folio=?",(cita['folio'],))
+  flash(request,'Cita eliminada. El registro del paciente se conservó.')
+ destino='/citas?periodo='+quote(periodo if periodo in ('dia','semana','mes') else 'dia')+'&fecha='+quote(fecha or ahora_local().date().isoformat())+'&sucursal_id='+str(max(0,sucursal_id))
+ return RedirectResponse(destino,status_code=303)
+
 
 @router.post('/citas/whatsapp')
 async def guardar_whatsapp(request:Request,numero:str=Form('')):
