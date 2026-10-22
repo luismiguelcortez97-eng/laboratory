@@ -114,13 +114,28 @@ async def verificar(request:Request,folio:str=Form(...),telefono:str=Form(...)):
  return templates.TemplateResponse(request,'pedir_cita.html',_ctx(request,verificacion={'fecha':cita['fecha'],'hora':str(cita['hora'])[:5],'sucursal':suc['nombre'] if suc else ''}))
 
 @router.get('/citas',response_class=HTMLResponse)
-async def agenda(request:Request,fecha:str='',sucursal_id:int=0):
+async def agenda(request:Request,fecha:str='',sucursal_id:int=0,periodo:str='dia'):
  from main import get_user,get_flashes
+ from datetime import timedelta
+ from calendar import monthrange
  user=get_user(request)
  if not user: return RedirectResponse('/login',status_code=303)
- fecha=fecha or today_str()
- rows=db.fetchall("SELECT c.folio,c.nombre_completo,c.edad,c.fecha_nacimiento,c.telefono,c.fecha,c.hora,s.nombre AS sucursal FROM citas c JOIN sucursales s ON s.id=c.sucursal_id WHERE c.fecha=? AND (?=0 OR c.sucursal_id=?) ORDER BY c.hora",(fecha,sucursal_id,sucursal_id))
- return templates.TemplateResponse(request,'citas.html',{'request':request,'user':user,'flashes':get_flashes(request),'citas':rows,'fecha':fecha,'sucursal_id':sucursal_id,'sucursales':db.fetchall('SELECT id,nombre FROM sucursales WHERE activa=1 ORDER BY nombre'),'whatsapp_numero':_numero(),'horario_config':_horario_config()})
+ try:
+  ancla=date.fromisoformat(fecha) if fecha else ahora_local().date()
+ except (ValueError,TypeError):
+  ancla=ahora_local().date()
+ if periodo not in ('dia','semana','mes'): periodo='dia'
+ if periodo=='semana':
+  inicio=ancla-timedelta(days=ancla.weekday()); fin=inicio+timedelta(days=6)
+  anterior=inicio-timedelta(days=7); siguiente=inicio+timedelta(days=7)
+ elif periodo=='mes':
+  inicio=ancla.replace(day=1); fin=ancla.replace(day=monthrange(ancla.year,ancla.month)[1])
+  anterior=(inicio-timedelta(days=1)).replace(day=1)
+  siguiente=(fin+timedelta(days=1)).replace(day=1)
+ else:
+  inicio=fin=ancla; anterior=ancla-timedelta(days=1); siguiente=ancla+timedelta(days=1)
+ rows=db.fetchall("SELECT c.folio,c.nombre_completo,c.edad,c.fecha_nacimiento,c.telefono,c.fecha,c.hora,s.nombre AS sucursal FROM citas c JOIN sucursales s ON s.id=c.sucursal_id WHERE c.fecha>=? AND c.fecha<=? AND (?=0 OR c.sucursal_id=?) ORDER BY c.fecha,c.hora",(inicio.isoformat(),fin.isoformat(),sucursal_id,sucursal_id))
+ return templates.TemplateResponse(request,'citas.html',{'request':request,'user':user,'flashes':get_flashes(request),'citas':rows,'fecha':ancla.isoformat(),'fecha_inicio':inicio.isoformat(),'fecha_fin':fin.isoformat(),'fecha_anterior':anterior.isoformat(),'fecha_siguiente':siguiente.isoformat(),'periodo':periodo,'sucursal_id':sucursal_id,'sucursales':db.fetchall('SELECT id,nombre FROM sucursales WHERE activa=1 ORDER BY nombre'),'whatsapp_numero':_numero(),'horario_config':_horario_config()})
 
 @router.post('/citas/whatsapp')
 async def guardar_whatsapp(request:Request,numero:str=Form('')):
