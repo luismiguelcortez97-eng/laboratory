@@ -4,7 +4,7 @@
 import os
 import json
 from pathlib import Path
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
 from fastapi import FastAPI, Request, Form, HTTPException, UploadFile, File
 from fastapi.responses import HTMLResponse, RedirectResponse, FileResponse, JSONResponse
@@ -70,6 +70,9 @@ _env = Environment(loader=FileSystemLoader(str(BASE / "templates")), autoescape=
 _env.filters["money"] = format_money
 _env.filters["dt"] = format_dt
 templates = Jinja2Templates(env=_env)
+
+from appointments import router as appointments_router
+app.include_router(appointments_router)
 
 # Guarda el conjunto exacto de operaciones que se confirmó desde Registro Diario.
 db.execute("""CREATE TABLE IF NOT EXISTS cierres_diarios (
