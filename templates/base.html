@@ -106,6 +106,8 @@
     <div class="brand">LC LAB <small>Laboratorio Clínico</small></div>
     <hr class="mx-3 my-1 border-secondary">
     <ul class="nav flex-column flex-grow-1">
+      <li class="nav-item"><a class="nav-link {% if '/pedir-cita' in request.url.path %}active{% endif %}" href="/pedir-cita"><i class="bi bi-calendar-plus"></i> Pedir una cita</a></li>
+      <li class="nav-item"><a class="nav-link {% if '/citas' in request.url.path %}active{% endif %}" href="/citas"><i class="bi bi-calendar-check"></i> Citas</a></li>
       <li class="nav-item"><a class="nav-link {% if request.url.path=='/' %}active{% endif %}" href="/"><i class="bi bi-house"></i> Inicio</a></li>
       <li class="nav-item"><a class="nav-link {% if '/pacientes' in request.url.path %}active{% endif %}" href="/pacientes"><i class="bi bi-person"></i> Pacientes</a></li>
       <li class="nav-item"><a class="nav-link {% if '/cotizacion' in request.url.path %}active{% endif %}" href="/cotizacion"><i class="bi bi-clipboard-plus"></i> Cotización / Venta</a></li>
