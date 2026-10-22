@@ -18,8 +18,12 @@ db.execute("""CREATE TABLE IF NOT EXISTS citas (
  created_at TEXT NOT NULL, UNIQUE(sucursal_id, fecha, hora))""")
 db.execute("""CREATE TABLE IF NOT EXISTS configuracion_citas (
  clave TEXT PRIMARY KEY, valor TEXT NOT NULL DEFAULT '', updated_at TEXT)""")
-# Migración compatible con las bases existentes: conserva las citas ya guardadas.
-if not any(str(col['name']) == 'motivo_consulta' for col in db.fetchall('PRAGMA table_info(citas)')):
+# Migración compatible con SQLite y PostgreSQL; conserva las citas ya guardadas.
+if db.use_postgres:
+ columnas_citas = db.fetchall("SELECT column_name AS name FROM information_schema.columns WHERE table_name='citas'")
+else:
+ columnas_citas = db.fetchall('PRAGMA table_info(citas)')
+if not any(str(col['name']) == 'motivo_consulta' for col in columnas_citas):
  db.execute("ALTER TABLE citas ADD COLUMN motivo_consulta TEXT NOT NULL DEFAULT 'Cita médica'")
 
 def _numero():
