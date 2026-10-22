@@ -29,7 +29,12 @@ def _horario_config():
  def valor(clave, defecto):
   r=db.fetchone("SELECT valor FROM configuracion_citas WHERE clave=?",(clave,))
   return str(r['valor']) if r and r['valor'] else defecto
- return {'inicio':valor('hora_inicio','08:00'),'fin':valor('hora_fin','16:00'),'intervalo':int(valor('intervalo_minutos','30'))}
+ dias_raw=valor('dias_trabajo','0,1,2,3,4,5,6')
+ try:
+  dias=sorted({int(d) for d in dias_raw.split(',') if d.strip() and 0<=int(d)<7})
+ except ValueError:
+  dias=[0,1,2,3,4,5,6]
+ return {'inicio':valor('hora_inicio','08:00'),'fin':valor('hora_fin','16:00'),'intervalo':int(valor('intervalo_minutos','30')),'dias':dias}
 def _slots():
  cfg=_horario_config()
  inicio=datetime.strptime(cfg['inicio'],'%H:%M')
@@ -60,6 +65,8 @@ async def ocupacion(fecha:str,sucursal_id:int):
   raise HTTPException(status_code=400,detail='Fecha inválida')
  if dia<ahora_local().date():
   raise HTTPException(status_code=400,detail='La fecha de la cita no puede estar en el pasado.')
+ if dia.weekday() not in _horario_config()['dias']:
+  raise HTTPException(status_code=400,detail='Ese día no se reciben citas. Elige un día laboral disponible.')
  if not db.fetchone('SELECT id FROM sucursales WHERE id=? AND activa=1',(sucursal_id,)):
   raise HTTPException(status_code=400,detail='Selecciona una sucursal válida.')
  rows=db.fetchall('SELECT hora FROM citas WHERE fecha=? AND sucursal_id=?',(fecha,sucursal_id))
@@ -80,8 +87,9 @@ async def guardar(request:Request,nombre_completo:str=Form(...),edad:int=Form(..
   if len(datos['nombre_completo'])<3: error='Escribe tu nombre completo.'
   elif edad<0 or edad>120: error='Verifica la edad ingresada.'
   elif nacimiento>ahora_local().date() or dia<ahora_local().date(): error='Revisa las fechas ingresadas.'
+  elif dia.weekday() not in _horario_config()['dias']: error='Ese día no se reciben citas. Elige un día laboral disponible.'
   elif len(''.join(c for c in telefono if c.isdigit()))<10: error='Escribe un teléfono válido de al menos 10 dígitos.'
-  elif hora not in _slots() or (dia==date.today() and hora<=ahora_local().strftime('%H:%M')): error='Selecciona un horario válido y futuro.'
+  elif hora not in _slots() or (dia==ahora_local().date() and hora<=ahora_local().strftime('%H:%M')): error='Selecciona un horario válido y futuro.'
   elif not db.fetchone('SELECT id FROM sucursales WHERE id=? AND activa=1',(sucursal_id,)): error='Selecciona una sucursal válida.'
  except (ValueError,TypeError): error='Revisa las fechas y la hora.'
  if error: return templates.TemplateResponse(request,'pedir_cita.html',_ctx(request,error=error,datos=datos),status_code=400)
@@ -128,7 +136,7 @@ async def guardar_whatsapp(request:Request,numero:str=Form('')):
 
 
 @router.post('/citas/horario')
-async def guardar_horario(request:Request,hora_inicio:str=Form(...),hora_fin:str=Form(...),intervalo_minutos:int=Form(...)):
+async def guardar_horario(request:Request,hora_inicio:str=Form(...),hora_fin:str=Form(...),intervalo_minutos:int=Form(...),dias_trabajo:list[int]=Form(...)):
  from main import get_user,flash
  user=get_user(request)
  if not user: return RedirectResponse('/login',status_code=303)
@@ -140,7 +148,9 @@ async def guardar_horario(request:Request,hora_inicio:str=Form(...),hora_fin:str
   raise HTTPException(status_code=400,detail='Selecciona horas válidas.')
  if inicio>=fin: raise HTTPException(status_code=400,detail='La hora de cierre debe ser posterior a la hora de inicio.')
  if intervalo_minutos not in (10,15,20,30,60): raise HTTPException(status_code=400,detail='Selecciona un intervalo válido.')
- for clave,valor in [('hora_inicio',hora_inicio),('hora_fin',hora_fin),('intervalo_minutos',str(intervalo_minutos))]:
+ if not dias_trabajo or any(d not in range(7) for d in dias_trabajo): raise HTTPException(status_code=400,detail='Selecciona al menos un día laboral.')
+ valores=[('hora_inicio',hora_inicio),('hora_fin',hora_fin),('intervalo_minutos',str(intervalo_minutos)),('dias_trabajo',','.join(str(d) for d in sorted(set(dias_trabajo))))]
+ for clave,valor in valores:
   db.execute("INSERT INTO configuracion_citas(clave,valor,updated_at) VALUES(?,?,?) ON CONFLICT(clave) DO UPDATE SET valor=excluded.valor,updated_at=excluded.updated_at",(clave,valor,now_iso()))
- flash(request,'Horario de citas actualizado. El portal público ya usa la nueva configuración.')
+ flash(request,'Días y horario de citas actualizados. El portal público ya usa la nueva configuración.')
  return RedirectResponse('/citas',status_code=303)
