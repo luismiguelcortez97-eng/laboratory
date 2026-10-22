@@ -18,6 +18,9 @@ db.execute("""CREATE TABLE IF NOT EXISTS citas (
  created_at TEXT NOT NULL, UNIQUE(sucursal_id, fecha, hora))""")
 db.execute("""CREATE TABLE IF NOT EXISTS configuracion_citas (
  clave TEXT PRIMARY KEY, valor TEXT NOT NULL DEFAULT '', updated_at TEXT)""")
+# Migración compatible con las bases existentes: conserva las citas ya guardadas.
+if not any(str(col['name']) == 'motivo_consulta' for col in db.fetchall('PRAGMA table_info(citas)')):
+ db.execute("ALTER TABLE citas ADD COLUMN motivo_consulta TEXT NOT NULL DEFAULT 'Cita médica'")
 
 def _numero():
  r=db.fetchone("SELECT valor FROM configuracion_citas WHERE clave='whatsapp'")
@@ -61,23 +64,29 @@ async def ocupacion(fecha:str,sucursal_id:int):
  return {'horarios':slots,'ocupadas':[str(r['hora'])[:5] for r in rows]}
 
 @router.post('/api/citas/guardar',response_class=HTMLResponse)
-async def guardar(request:Request,nombre_completo:str=Form(...),edad:int=Form(...),fecha_nacimiento:str=Form(...),telefono:str=Form(...),sucursal_id:int=Form(...),fecha:str=Form(...),hora:str=Form(...)):
- datos={'nombre_completo':nombre_completo.strip(),'edad':edad,'fecha_nacimiento':fecha_nacimiento,'telefono':telefono.strip(),'sucursal_id':sucursal_id,'fecha':fecha,'hora':hora}
+async def guardar(request:Request,nombre_completo:str=Form(...),edad:int=Form(...),fecha_nacimiento:str=Form(...),telefono:str=Form(...),sucursal_id:int=Form(...),fecha:str=Form(...),hora:str=Form(...),motivo_consulta:str=Form(...),otro_motivo:str=Form('')):
+ datos={'nombre_completo':nombre_completo.strip(),'edad':edad,'fecha_nacimiento':fecha_nacimiento,'telefono':telefono.strip(),'sucursal_id':sucursal_id,'fecha':fecha,'hora':hora,'motivo_consulta':motivo_consulta,'otro_motivo':otro_motivo.strip()}
  error=None
+ opciones_motivo=('Cita médica','Certificado médico','Otros síntomas','Presión alta','Lectura de estudios','Otro motivo')
+ motivo_guardado=''
  try:
   nacimiento=date.fromisoformat(fecha_nacimiento); dia=date.fromisoformat(fecha); datetime.strptime(hora,'%H:%M')
-  if len(datos['nombre_completo'])<3: error='Escribe tu nombre completo.'
-  elif edad<0 or edad>120: error='Verifica la edad ingresada.'
-  elif nacimiento>date.today() or dia<date.today(): error='Revisa las fechas ingresadas.'
-  elif len(''.join(c for c in telefono if c.isdigit()))<10: error='Escribe un teléfono válido de al menos 10 dígitos.'
-  elif hora not in _slots() or (dia==date.today() and hora<=ahora_local().strftime('%H:%M')): error='Selecciona un horario válido y futuro.'
-  elif not db.fetchone('SELECT id FROM sucursales WHERE id=? AND activa=1',(sucursal_id,)): error='Selecciona una sucursal válida.'
+  if motivo_consulta not in opciones_motivo: error='Selecciona un motivo de consulta válido.'
+  elif motivo_consulta=='Otro motivo' and not datos['otro_motivo']: error='Escribe el otro motivo de consulta.'
+  elif motivo_consulta=='Otro motivo' and len(datos['otro_motivo'].split())>50: error='El otro motivo no puede superar las 50 palabras.'
+  else: motivo_guardado=datos['otro_motivo'] if motivo_consulta=='Otro motivo' else motivo_consulta
+  if not error and len(datos['nombre_completo'])<3: error='Escribe tu nombre completo.'
+  elif not error and (edad<0 or edad>120): error='Verifica la edad ingresada.'
+  elif not error and (nacimiento>date.today() or dia<date.today()): error='Revisa las fechas ingresadas.'
+  elif not error and len(''.join(c for c in telefono if c.isdigit()))<10: error='Escribe un teléfono válido de al menos 10 dígitos.'
+  elif not error and (hora not in _slots() or (dia==date.today() and hora<=ahora_local().strftime('%H:%M'))): error='Selecciona un horario válido y futuro.'
+  elif not error and not db.fetchone('SELECT id FROM sucursales WHERE id=? AND activa=1',(sucursal_id,)): error='Selecciona una sucursal válida.'
  except (ValueError,TypeError): error='Revisa las fechas y la hora.'
  if error: return templates.TemplateResponse(request,'pedir_cita.html',_ctx(request,error=error,datos=datos),status_code=400)
  folio='C'+str(secrets.randbelow(900000)+100000); timestamp=now_iso()
  try:
   with db.cursor() as cur:
-   cur.execute('INSERT INTO citas (folio,nombre_completo,edad,fecha_nacimiento,telefono,sucursal_id,fecha,hora,created_at) VALUES (?,?,?,?,?,?,?,?,?)',(folio,datos['nombre_completo'],edad,fecha_nacimiento,telefono.strip(),sucursal_id,fecha,hora,timestamp))
+   cur.execute('INSERT INTO citas (folio,nombre_completo,edad,fecha_nacimiento,telefono,sucursal_id,fecha,hora,created_at,motivo_consulta) VALUES (?,?,?,?,?,?,?,?,?,?)',(folio,datos['nombre_completo'],edad,fecha_nacimiento,telefono.strip(),sucursal_id,fecha,hora,timestamp,motivo_guardado))
    pf=db.generar_folio('P')
    cur.execute('INSERT INTO pacientes (folio,nombre_completo,edad,fecha_nacimiento,telefono,sucursal_id,fecha_registro,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)',(pf,datos['nombre_completo'],edad,fecha_nacimiento,telefono.strip(),sucursal_id,timestamp,timestamp,timestamp))
  except Exception:
@@ -100,7 +109,7 @@ async def agenda(request:Request,fecha:str='',sucursal_id:int=0):
  user=get_user(request)
  if not user: return RedirectResponse('/login',status_code=303)
  fecha=fecha or today_str()
- rows=db.fetchall("SELECT c.folio,c.nombre_completo,c.edad,c.fecha_nacimiento,c.telefono,c.fecha,c.hora,s.nombre AS sucursal FROM citas c JOIN sucursales s ON s.id=c.sucursal_id WHERE c.fecha=? AND (?=0 OR c.sucursal_id=?) ORDER BY c.hora",(fecha,sucursal_id,sucursal_id))
+ rows=db.fetchall("SELECT c.folio,c.nombre_completo,c.edad,c.fecha_nacimiento,c.telefono,c.fecha,c.hora,c.motivo_consulta,s.nombre AS sucursal FROM citas c JOIN sucursales s ON s.id=c.sucursal_id WHERE c.fecha=? AND (?=0 OR c.sucursal_id=?) ORDER BY c.hora",(fecha,sucursal_id,sucursal_id))
  return templates.TemplateResponse(request,'citas.html',{'request':request,'user':user,'flashes':get_flashes(request),'citas':rows,'fecha':fecha,'sucursal_id':sucursal_id,'sucursales':db.fetchall('SELECT id,nombre FROM sucursales WHERE activa=1 ORDER BY nombre'),'whatsapp_numero':_numero(),'horario_config':_horario_config()})
 
 @router.post('/citas/whatsapp')
