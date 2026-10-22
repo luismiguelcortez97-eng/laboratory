@@ -52,13 +52,23 @@ async def pedir_cita(request:Request):
 
 @router.get('/api/citas/ocupacion')
 async def ocupacion(fecha:str,sucursal_id:int):
- try: dia=date.fromisoformat(fecha)
- except ValueError: raise HTTPException(status_code=400,detail='Fecha inválida')
- if dia<date.today(): raise HTTPException(status_code=400,detail='Fecha pasada')
+ try:
+  dia=date.fromisoformat(fecha)
+ except (ValueError,TypeError):
+  raise HTTPException(status_code=400,detail='Fecha inválida')
+ if dia.isoformat()!=fecha:
+  raise HTTPException(status_code=400,detail='Fecha inválida')
+ if dia<ahora_local().date():
+  raise HTTPException(status_code=400,detail='La fecha de la cita no puede estar en el pasado.')
+ if not db.fetchone('SELECT id FROM sucursales WHERE id=? AND activa=1',(sucursal_id,)):
+  raise HTTPException(status_code=400,detail='Selecciona una sucursal válida.')
  rows=db.fetchall('SELECT hora FROM citas WHERE fecha=? AND sucursal_id=?',(fecha,sucursal_id))
+ ocupadas={str(r['hora'])[:5] for r in rows}
  slots=_slots()
- if fecha==today_str(): slots=[s for s in slots if s>ahora_local().strftime('%H:%M')]
- return {'horarios':slots,'ocupadas':[str(r['hora'])[:5] for r in rows]}
+ if dia==ahora_local().date():
+  slots=[s for s in slots if s>ahora_local().strftime('%H:%M')]
+ disponibles=[s for s in slots if s not in ocupadas]
+ return {'fecha':fecha,'sucursal_id':sucursal_id,'horarios':disponibles,'ocupadas':sorted(ocupadas)}
 
 @router.post('/api/citas/guardar',response_class=HTMLResponse)
 async def guardar(request:Request,nombre_completo:str=Form(...),edad:int=Form(...),fecha_nacimiento:str=Form(...),telefono:str=Form(...),sucursal_id:int=Form(...),fecha:str=Form(...),hora:str=Form(...)):
@@ -66,9 +76,10 @@ async def guardar(request:Request,nombre_completo:str=Form(...),edad:int=Form(..
  error=None
  try:
   nacimiento=date.fromisoformat(fecha_nacimiento); dia=date.fromisoformat(fecha); datetime.strptime(hora,'%H:%M')
+  if nacimiento.isoformat()!=fecha_nacimiento or dia.isoformat()!=fecha: raise ValueError('Fecha inválida')
   if len(datos['nombre_completo'])<3: error='Escribe tu nombre completo.'
   elif edad<0 or edad>120: error='Verifica la edad ingresada.'
-  elif nacimiento>date.today() or dia<date.today(): error='Revisa las fechas ingresadas.'
+  elif nacimiento>ahora_local().date() or dia<ahora_local().date(): error='Revisa las fechas ingresadas.'
   elif len(''.join(c for c in telefono if c.isdigit()))<10: error='Escribe un teléfono válido de al menos 10 dígitos.'
   elif hora not in _slots() or (dia==date.today() and hora<=ahora_local().strftime('%H:%M')): error='Selecciona un horario válido y futuro.'
   elif not db.fetchone('SELECT id FROM sucursales WHERE id=? AND activa=1',(sucursal_id,)): error='Selecciona una sucursal válida.'
