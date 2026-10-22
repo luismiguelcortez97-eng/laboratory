@@ -13,21 +13,15 @@
   <div class="card card-lc p-3 mb-3">
     <div class="row g-2">
 
-      <div class="col-md-5">
-        <label for="paciente_id" class="form-label small">
-          Paciente *
-        </label>
-        <select name="paciente_id"
-                id="paciente_id"
-                class="form-select form-select-sm"
-                required>
-          <option value="">— Seleccionar paciente —</option>
-          {% for p in pacientes %}
-          <option value="{{ p.id }}">
-            {{ p.folio }} — {{ p.nombre_completo }}
-          </option>
-          {% endfor %}
-        </select>
+      <div class="col-md-5 position-relative">
+        <label for="buscarPaciente" class="form-label small">Buscar paciente *</label>
+        <input type="text" id="buscarPaciente" class="form-control form-control-sm"
+               placeholder="Escribe nombre, folio o teléfono..." autocomplete="off"
+               aria-autocomplete="list" aria-controls="resultadosPaciente">
+        <input type="hidden" name="paciente_id" id="paciente_id" required>
+        <div id="resultadosPaciente" class="list-group position-absolute w-100 shadow-sm"
+             style="z-index:1050; max-height:240px; overflow-y:auto; display:none;" role="listbox"></div>
+        <small id="pacienteSeleccionado" class="text-muted">Escribe para buscar y selecciona un paciente.</small>
       </div>
 
       <div class="col-md-3">
@@ -509,9 +503,86 @@ function renderPartidas() {
   totalLabel.textContent = formatoDinero(totalFinal);
 }
 
+let busquedaPacienteController = null;
+
+async function buscarPacientes() {
+  const entrada = document.getElementById("buscarPaciente");
+  const resultados = document.getElementById("resultadosPaciente");
+  const pacienteId = document.getElementById("paciente_id");
+  const aviso = document.getElementById("pacienteSeleccionado");
+  const termino = entrada.value.trim();
+
+  pacienteId.value = "";
+  aviso.textContent = termino ? "Selecciona un paciente de los resultados." : "Escribe para buscar y selecciona un paciente.";
+  resultados.replaceChildren();
+  if (!termino) { resultados.style.display = "none"; return; }
+
+  if (busquedaPacienteController) busquedaPacienteController.abort();
+  busquedaPacienteController = new AbortController();
+  const cargando = document.createElement("div");
+  cargando.className = "list-group-item small text-muted";
+  cargando.textContent = "Buscando pacientes...";
+  resultados.appendChild(cargando);
+  resultados.style.display = "block";
+
+  try {
+    const respuesta = await fetch("/api/pacientes/buscar?q=" + encodeURIComponent(termino), {
+      headers: { "Accept": "application/json" }, signal: busquedaPacienteController.signal
+    });
+    if (!respuesta.ok) throw new Error("Error HTTP " + respuesta.status);
+    const pacientes = await respuesta.json();
+    resultados.replaceChildren();
+    if (!Array.isArray(pacientes) || pacientes.length === 0) {
+      const vacio = document.createElement("div");
+      vacio.className = "list-group-item small text-muted";
+      vacio.textContent = "No se encontraron pacientes.";
+      resultados.appendChild(vacio);
+      return;
+    }
+    pacientes.forEach(paciente => {
+      const opcion = document.createElement("button");
+      opcion.type = "button";
+      opcion.className = "list-group-item list-group-item-action small";
+      opcion.setAttribute("role", "option");
+      opcion.textContent = (paciente.folio || "") + " — " + (paciente.nombre_completo || "") +
+        (paciente.telefono ? " · " + paciente.telefono : "");
+      opcion.addEventListener("click", () => {
+        pacienteId.value = String(paciente.id);
+        entrada.value = (paciente.folio || "") + " — " + (paciente.nombre_completo || "");
+        aviso.textContent = "Paciente seleccionado: " + (paciente.nombre_completo || "");
+        resultados.style.display = "none";
+        resultados.replaceChildren();
+      });
+      resultados.appendChild(opcion);
+    });
+  } catch (error) {
+    if (error.name === "AbortError") return;
+    console.error("Error al buscar pacientes:", error);
+    resultados.replaceChildren();
+    const fallo = document.createElement("div");
+    fallo.className = "list-group-item small text-danger";
+    fallo.textContent = "No se pudo buscar. Intenta de nuevo.";
+    resultados.appendChild(fallo);
+  }
+}
+
 document.addEventListener("DOMContentLoaded", () => {
   const buscador = document.getElementById("buscarEstudio");
   const formulario = document.getElementById("formCot");
+  const buscarPaciente = document.getElementById("buscarPaciente");
+  let temporizadorPaciente = null;
+
+  buscarPaciente.addEventListener("input", () => {
+    clearTimeout(temporizadorPaciente);
+    temporizadorPaciente = setTimeout(buscarPacientes, 180);
+  });
+  buscarPaciente.addEventListener("focus", () => {
+    if (buscarPaciente.value.trim() && !document.getElementById("paciente_id").value) buscarPacientes();
+  });
+  document.addEventListener("click", evento => {
+    const lista = document.getElementById("resultadosPaciente");
+    if (!lista.contains(evento.target) && evento.target !== buscarPaciente) lista.style.display = "none";
+  });
 
   buscador.addEventListener("input", filtrarEstudios);
   document.getElementById("descuento_porcentaje").addEventListener("input", renderPartidas);
