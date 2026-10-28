@@ -161,10 +161,12 @@ def generar_pdf_milab(detalles, sucursal, desde, hasta):
     for r in detalles:
         folio = str(r["folio_paciente"] or "")
         nombre = str(r["paciente"] or "Paciente sin nombre")
-        clave = (folio, nombre)
+        fecha_atencion = str(r.get("fecha_hora") or "")[:10]
+        clave = (fecha_atencion, folio, nombre)
         if clave not in pacientes:
             pacientes[clave] = {
                 "total": 0.0, "estudios": [],
+                "fecha_atencion": fecha_atencion,
                 "fecha_nacimiento": r.get("fecha_nacimiento"),
                 "edad": r.get("edad"), "telefono": r.get("telefono")
             }
@@ -173,19 +175,21 @@ def generar_pdf_milab(detalles, sucursal, desde, hasta):
         if estudio and estudio not in pacientes[clave]["estudios"]:
             pacientes[clave]["estudios"].append(estudio)
 
-    data = [[Paragraph("<b>Paciente</b>", st["Cen"]),
+    data = [[Paragraph("<b>Fecha atención</b>", st["Cen"]),
+             Paragraph("<b>Paciente</b>", st["Cen"]),
              Paragraph("<b>Fecha nacimiento</b>", st["Cen"]),
              Paragraph("<b>Edad</b>", st["Cen"]),
              Paragraph("<b>Celular</b>", st["Cen"]),
              Paragraph("<b>Estudios cobrados</b>", st["Cen"]),
              Paragraph("<b>Total de insumos</b>", st["Cen"])]]
     total_general = 0.0
-    for (folio, nombre), info in sorted(pacientes.items(), key=lambda x: x[0][1].casefold()):
+    for (fecha_atencion, folio, nombre), info in sorted(pacientes.items(), key=lambda x: (x[0][0], x[0][2].casefold())):
         nombre_html = escape(nombre)
         if folio:
             nombre_html += "<br/><font size='8'>Folio: " + escape(folio) + "</font>"
         estudios_html = "<br/>".join(escape(x) for x in info["estudios"]) or "Sin estudios registrados"
-        data.append([Paragraph(nombre_html, st["Sm"]),
+        data.append([Paragraph(escape(fecha_atencion or "—"), st["Sm"]),
+                     Paragraph(nombre_html, st["Sm"]),
                      Paragraph(escape(str(info.get("fecha_nacimiento") or "—")), st["Sm"]),
                      Paragraph(escape(str(info.get("edad") or "—")), st["Cen"]),
                      Paragraph(escape(str(info.get("telefono") or "—")), st["Sm"]),
@@ -194,11 +198,11 @@ def generar_pdf_milab(detalles, sucursal, desde, hasta):
         total_general += info["total"]
 
     if not pacientes:
-        data.append([Paragraph("Sin pacientes registrados en el periodo seleccionado.", st["Sm"]), "", "", "", "", ""])
-    data.append([Paragraph("<b>TOTAL GENERAL</b>", st["Sm"]), "", "", "",
+        data.append([Paragraph("Sin pacientes registrados en el periodo seleccionado.", st["Sm"]), "", "", "", "", "", ""])
+    data.append([Paragraph("<b>TOTAL GENERAL</b>", st["Sm"]), "", "", "", "",
                  "", Paragraph(f"<b>MXN {total_general:,.2f}</b>", st["Der"])])
 
-    tabla = Table(data, repeatRows=1, colWidths=[4.3*cm, 2.5*cm, 1.2*cm, 2.4*cm, 5.0*cm, 2.4*cm])
+    tabla = Table(data, repeatRows=1, colWidths=[2.0*cm, 3.5*cm, 2.3*cm, 1.0*cm, 2.2*cm, 5.0*cm, 2.4*cm])
     tabla.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, 0), AZUL),
         ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
@@ -206,7 +210,7 @@ def generar_pdf_milab(detalles, sucursal, desde, hasta):
         ("ROWBACKGROUNDS", (0, 1), (-1, -2), [colors.white, AZUL_CLARO]),
         ("BACKGROUND", (0, -1), (-1, -1), AZUL_CLARO),
         ("BOX", (0, -1), (-1, -1), 0.8, AZUL),
-        ("SPAN", (0, -1), (4, -1)),
+        ("SPAN", (0, -1), (5, -1)),
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
         ("TOPPADDING", (0, 0), (-1, -1), 7),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
@@ -241,9 +245,9 @@ def generar_pdf_reporte_lc(detalles, sucursal, desde, hasta):
         Paragraph("Periodo: " + escape(str(desde)) + " al " + escape(str(hasta)), st["Cen"]),
         Spacer(1, 8), HRFlowable(width="100%", thickness=1.5, color=AZUL, spaceAfter=8),
     ]
-    data = [[Paragraph("<b>Folio</b>", st["Cen"]),
-             Paragraph("<b>Fecha</b>", st["Cen"]),
-             Paragraph("<b>Paciente</b>", st["Cen"]),
+    data = [[Paragraph("<b>Fecha atención</b>", st["Cen"]),
+             Paragraph("<b>Folio</b>", st["Cen"]),
+             Paragraph("<b>Paciente / estudios realizados</b>", st["Cen"]),
              Paragraph("<b>F. nacimiento</b>", st["Cen"]),
              Paragraph("<b>Edad</b>", st["Cen"]),
              Paragraph("<b>Celular</b>", st["Cen"]),
@@ -254,10 +258,13 @@ def generar_pdf_reporte_lc(detalles, sucursal, desde, hasta):
     for r in detalles:
         fecha = str(r["fecha_hora"] or "")[:16].replace("T", " ")
         descuento = float(r.get("descuento_monto", 0) or 0)
+        estudios = r.get("estudios") or []
+        estudios_html = "<br/><font size='8' color='#566573'>Estudios realizados: " + escape("; ".join(str(x) for x in estudios)) + "</font>" if estudios else "<br/><font size='8' color='#566573'>Estudios realizados: sin detalle registrado</font>"
+        fecha_atencion = fecha[:10] if fecha else "—"
         data.append([
+            Paragraph(escape(fecha_atencion), st["Sm"]),
             Paragraph(escape(str(r["folio"] or "")), st["Sm"]),
-            Paragraph(escape(fecha), st["Sm"]),
-            Paragraph(escape(str(r.get("paciente") or "—")), st["Sm"]),
+            Paragraph(escape(str(r.get("paciente") or "—")) + estudios_html, st["Sm"]),
             Paragraph(escape(str(r.get("fecha_nacimiento") or "—")), st["Sm"]),
             Paragraph(escape(str(r.get("edad") or "—")), st["Cen"]),
             Paragraph(escape(str(r.get("telefono") or "—")), st["Sm"]),
@@ -273,7 +280,7 @@ def generar_pdf_reporte_lc(detalles, sucursal, desde, hasta):
                  Paragraph(f"<b>${total_descuentos:,.2f}</b>", st["Der"]),
                  Paragraph(f"<b>${total_cobrado:,.2f}</b>", st["Der"]),
                  ""])
-    tabla = Table(data, repeatRows=1, colWidths=[1.5*cm, 2.0*cm, 3.0*cm, 2.0*cm, 1.0*cm, 2.0*cm, 1.8*cm, 1.7*cm, 1.8*cm, 1.5*cm])
+    tabla = Table(data, repeatRows=1, colWidths=[1.7*cm, 1.5*cm, 3.8*cm, 2.0*cm, 1.0*cm, 2.0*cm, 1.8*cm, 1.7*cm, 1.8*cm, 1.5*cm])
     tabla.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, 0), AZUL), ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
         ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#aab7b8")),
