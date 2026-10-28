@@ -276,8 +276,8 @@ def generar_pdf_reporte_lc(detalles, sucursal, desde, hasta):
             Paragraph(escape(str(r["estado_pago"] or "")), st["Sm"]),
         ])
     if not detalles:
-        data.append([Paragraph("Sin operaciones confirmadas en el periodo.", st["Sm"]), "", "", "", "", "", "", "", "", ""])
-    data.append([Paragraph("<b>TOTALES</b>", st["Sm"]), "", "", "", "", "",
+        data.append([Paragraph("Sin operaciones confirmadas en el periodo.", st["Sm"]), "", "", "", "", "", "", "", "", "", ""])
+    data.append([Paragraph("<b>TOTALES</b>", st["Sm"]), "", "", "", "", "", "",
                  Paragraph(f"<b>${total_ventas:,.2f}</b>", st["Der"]),
                  Paragraph(f"<b>${total_descuentos:,.2f}</b>", st["Der"]),
                  Paragraph(f"<b>${total_cobrado:,.2f}</b>", st["Der"]),
