@@ -282,7 +282,7 @@ def generar_pdf_reporte_lc(detalles, sucursal, desde, hasta):
                  Paragraph(f"<b>${total_descuentos:,.2f}</b>", st["Der"]),
                  Paragraph(f"<b>${total_cobrado:,.2f}</b>", st["Der"]),
                  ""])
-    tabla = Table(data, repeatRows=1, colWidths=[1.6*cm, 1.4*cm, 3.4*cm, 2.2*cm, 2.0*cm, 1.0*cm, 1.8*cm, 1.7*cm, 1.8*cm, 1.5*cm])
+    tabla = Table(data, repeatRows=1, colWidths=[1.4*cm, 1.2*cm, 3.0*cm, 1.8*cm, 1.7*cm, 0.8*cm, 1.7*cm, 1.5*cm, 1.7*cm, 1.7*cm, 1.0*cm])
     tabla.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, 0), AZUL), ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
         ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#aab7b8")),
