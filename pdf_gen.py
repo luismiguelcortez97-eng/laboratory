@@ -248,6 +248,7 @@ def generar_pdf_reporte_lc(detalles, sucursal, desde, hasta):
     data = [[Paragraph("<b>Fecha atención</b>", st["Cen"]),
              Paragraph("<b>Folio</b>", st["Cen"]),
              Paragraph("<b>Paciente / estudios realizados</b>", st["Cen"]),
+             Paragraph("<b>Fecha y hora</b>", st["Cen"]),
              Paragraph("<b>F. nacimiento</b>", st["Cen"]),
              Paragraph("<b>Edad</b>", st["Cen"]),
              Paragraph("<b>Celular</b>", st["Cen"]),
@@ -265,6 +266,7 @@ def generar_pdf_reporte_lc(detalles, sucursal, desde, hasta):
             Paragraph(escape(fecha_atencion), st["Sm"]),
             Paragraph(escape(str(r["folio"] or "")), st["Sm"]),
             Paragraph(escape(str(r.get("paciente") or "—")) + estudios_html, st["Sm"]),
+            Paragraph(escape(fecha), st["Sm"]),
             Paragraph(escape(str(r.get("fecha_nacimiento") or "—")), st["Sm"]),
             Paragraph(escape(str(r.get("edad") or "—")), st["Cen"]),
             Paragraph(escape(str(r.get("telefono") or "—")), st["Sm"]),
@@ -280,7 +282,7 @@ def generar_pdf_reporte_lc(detalles, sucursal, desde, hasta):
                  Paragraph(f"<b>${total_descuentos:,.2f}</b>", st["Der"]),
                  Paragraph(f"<b>${total_cobrado:,.2f}</b>", st["Der"]),
                  ""])
-    tabla = Table(data, repeatRows=1, colWidths=[1.7*cm, 1.5*cm, 3.8*cm, 2.0*cm, 1.0*cm, 2.0*cm, 1.8*cm, 1.7*cm, 1.8*cm, 1.5*cm])
+    tabla = Table(data, repeatRows=1, colWidths=[1.6*cm, 1.4*cm, 3.4*cm, 2.2*cm, 2.0*cm, 1.0*cm, 1.8*cm, 1.7*cm, 1.8*cm, 1.5*cm])
     tabla.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, 0), AZUL), ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
         ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#aab7b8")),
