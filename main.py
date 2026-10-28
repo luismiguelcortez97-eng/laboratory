@@ -959,7 +959,7 @@ async def reportes_generar(request: Request, sucursal_id: int = Form(...), tipo:
     if ids_confirmados:
         placeholders = ",".join("?" for _ in ids_confirmados)
         rows = db.fetchall(
-            f"""SELECT v.folio, v.fecha_hora, v.total, v.monto_recibido, v.estado_pago, v.metodo_pago,
+            f"""SELECT v.id AS venta_id, v.folio, v.fecha_hora, v.total, v.monto_recibido, v.estado_pago, v.metodo_pago,
                        v.descuento_porcentaje, v.descuento_monto,
                        p.nombre_completo AS paciente, p.fecha_nacimiento, p.edad, p.telefono
                 FROM ventas v
@@ -971,6 +971,16 @@ async def reportes_generar(request: Request, sucursal_id: int = Form(...), tipo:
                       ('COTIZACION', 'CANCELADO', 'CANCELADA', 'CANCELLED', 'CANCEL', 'ANULADO', 'ANULADA')
                 ORDER BY v.fecha_hora""", [sucursal_id, desde, hasta] + ids_confirmados)
     rows = [dict(r) for r in rows]
+    for row in rows:
+        estudios_rows = db.fetchall(
+            "SELECT nombre FROM venta_detalles WHERE venta_id=? ORDER BY id",
+            (row["venta_id"],)
+        )
+        row["estudios"] = list(dict.fromkeys(
+            str(estudio["nombre"] or "").strip()
+            for estudio in estudios_rows
+            if str(estudio["nombre"] or "").strip()
+        ))
     pdf_path = generar_pdf_reporte_lc(rows, sucursal, desde, hasta)
     return FileResponse(path=pdf_path, filename=f"LC_Lab_{desde}_{hasta}.pdf",
                         media_type="application/pdf", content_disposition_type="inline")
