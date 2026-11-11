@@ -245,11 +245,14 @@ def sincronizar_creditos_milab():
             costo_anterior = round(float(existente["costo_total"] or 0), 2)
             pagado = round(float(existente["monto_pagado"] or 0), 2)
             if costo > costo_anterior + 0.009:
+                # Conserva pagos previos; el gasto nuevo solo incrementa el saldo pendiente.
+                nuevo_pagado = min(pagado, costo)
+                nuevo_estado = "PAGADO" if costo <= 0 or nuevo_pagado >= costo - 0.009 else "PENDIENTE"
                 db.execute(
                     """UPDATE creditos_milab
-                       SET costo_total=?, monto_pagado=0, estatus=?, fecha_pago=NULL, updated_at=?
+                       SET costo_total=?, monto_pagado=?, estatus=?, fecha_pago=CASE WHEN ?='PAGADO' THEN fecha_pago ELSE NULL END, updated_at=?
                        WHERE paciente_id=?""",
-                    (costo, "PENDIENTE" if costo > 0 else "PAGADO", now_iso(), paciente_id)
+                    (costo, nuevo_pagado, nuevo_estado, nuevo_estado, now_iso(), paciente_id)
                 )
             elif abs(costo - costo_anterior) > 0.009:
                 nuevo_pagado = min(pagado, costo)
