@@ -302,6 +302,7 @@ def datos_portal_socio(periodo: str, fecha_ref: str):
                ORDER BY p.fecha_registro, p.id""",
             (tec["id"], desde, hasta)
         )
+    creditos = [dict(credito) for credito in creditos]
     for credito in creditos:
         credito["estudios"] = db.fetchall(
             """SELECT v.fecha_hora, v.folio AS folio_venta, vd.clave,
