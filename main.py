@@ -125,6 +125,15 @@ db.execute("""CREATE TABLE IF NOT EXISTS portal_socio_tokens (
     created_at TEXT NOT NULL,
     created_by INTEGER
 )""")
+db.execute("""CREATE TABLE IF NOT EXISTS portal_socio_pagos (
+    paciente_id INTEGER PRIMARY KEY,
+    costo_total REAL NOT NULL DEFAULT 0,
+    monto_pagado REAL NOT NULL DEFAULT 0,
+    estatus TEXT NOT NULL DEFAULT 'PENDIENTE',
+    fecha_pago TEXT,
+    updated_at TEXT NOT NULL
+)""")
+db.execute("CREATE INDEX IF NOT EXISTS idx_portal_socio_pagos_estatus ON portal_socio_pagos(estatus)")
 db.execute("CREATE INDEX IF NOT EXISTS idx_creditos_milab_estado ON creditos_milab(estatus)")
 db.execute("CREATE INDEX IF NOT EXISTS idx_creditos_milab_mov_paciente ON creditos_milab_movimientos(paciente_id)")
 
@@ -265,6 +274,47 @@ def sincronizar_creditos_milab():
                 )
 
 
+def sincronizar_pagos_socio():
+    """Mantiene un saldo por paciente de todas las sucursales sin borrar pagos previos."""
+    pacientes = db.fetchall(
+        """SELECT p.id AS paciente_id,
+                  COALESCE(SUM(vd.cantidad * COALESCE(vd.costo_unitario, 0)), 0) AS costo_total
+           FROM pacientes p
+           LEFT JOIN ventas v ON v.paciente_id=p.id AND v.sucursal_id=p.sucursal_id
+             AND COALESCE(v.activo, 0)=1
+             AND UPPER(TRIM(COALESCE(v.estado_pago, ''))) NOT IN
+                 ('COTIZACION', 'CANCELADO', 'CANCELADA', 'CANCELLED', 'CANCEL', 'ANULADO', 'ANULADA')
+           LEFT JOIN venta_detalles vd ON vd.venta_id=v.id
+           GROUP BY p.id"""
+    )
+    for fila in pacientes:
+        pid = int(fila["paciente_id"])
+        costo = round(float(fila["costo_total"] or 0), 2)
+        actual = db.fetchone(
+            "SELECT costo_total, monto_pagado FROM portal_socio_pagos WHERE paciente_id=?",
+            (pid,)
+        )
+        if not actual:
+            db.execute(
+                """INSERT INTO portal_socio_pagos
+                   (paciente_id, costo_total, monto_pagado, estatus, fecha_pago, updated_at)
+                   VALUES (?, ?, 0, 'PENDIENTE', NULL, ?)""",
+                (pid, costo, now_iso())
+            )
+        else:
+            anterior = round(float(actual["costo_total"] or 0), 2)
+            pagado = min(round(float(actual["monto_pagado"] or 0), 2), costo)
+            if abs(costo - anterior) > 0.009 or pagado != float(actual["monto_pagado"] or 0):
+                estatus = "PAGADO" if costo > 0 and pagado >= costo - 0.009 else "PENDIENTE"
+                db.execute(
+                    """UPDATE portal_socio_pagos
+                       SET costo_total=?, monto_pagado=?, estatus=?,
+                           fecha_pago=CASE WHEN ?='PAGADO' THEN fecha_pago ELSE NULL END,
+                           updated_at=? WHERE paciente_id=?""",
+                    (costo, pagado, estatus, estatus, now_iso(), pid)
+                )
+
+
 def obtener_pendientes_confirmacion(sucursal_id: int, desde: str, hasta: str):
     return db.fetchall(
         """SELECT v.id AS venta_id, v.folio, v.fecha_hora, p.id AS paciente_id,
@@ -289,25 +339,27 @@ def datos_portal_socio(periodo: str, fecha_ref: str):
     for suc in sucursales:
         filas = obtener_pendientes_confirmacion(suc["id"], desde, hasta)
         pendientes.extend([dict(f, sucursal=suc["nombre"]) for f in filas])
-    sincronizar_creditos_milab()
-    tec = sucursal_tecolotes()
-    creditos = []
-    if tec:
-        creditos = db.fetchall(
-            """SELECT p.id AS paciente_id, p.folio, p.nombre_completo AS paciente,
-                      p.fecha_registro, c.costo_total, c.monto_pagado, c.estatus, c.fecha_pago
-               FROM pacientes p
-               JOIN creditos_milab c ON c.paciente_id=p.id
-               WHERE p.sucursal_id=? AND date(p.fecha_registro) BETWEEN ? AND ?
-               ORDER BY p.fecha_registro, p.id""",
-            (tec["id"], desde, hasta)
-        )
-    creditos = [dict(credito) for credito in creditos]
+    sincronizar_pagos_socio()
+    creditos = db.fetchall(
+        """SELECT p.id AS paciente_id, p.folio, p.nombre_completo AS paciente,
+                  p.fecha_registro, p.sucursal_id, s.nombre AS sucursal,
+                  COALESCE(ps.costo_total, 0) AS costo_total,
+                  COALESCE(ps.monto_pagado, 0) AS monto_pagado,
+                  COALESCE(ps.estatus, 'PENDIENTE') AS estatus,
+                  ps.fecha_pago
+           FROM pacientes p
+           LEFT JOIN sucursales s ON s.id=p.sucursal_id
+           LEFT JOIN portal_socio_pagos ps ON ps.paciente_id=p.id
+           WHERE date(p.fecha_registro) BETWEEN ? AND ?
+           ORDER BY p.fecha_registro, p.id""",
+        (desde, hasta)
+    )
+    creditos = [dict(c) for c in creditos]
     for credito in creditos:
         credito["estudios"] = db.fetchall(
             """SELECT v.fecha_hora, v.folio AS folio_venta, vd.clave,
                       vd.nombre, vd.cantidad, vd.costo_unitario,
-                      (vd.cantidad * vd.costo_unitario) AS costo_linea
+                      (vd.cantidad * COALESCE(vd.costo_unitario, 0)) AS costo_linea
                FROM ventas v
                JOIN venta_detalles vd ON vd.venta_id=v.id
                WHERE v.paciente_id=? AND v.sucursal_id=?
@@ -315,10 +367,9 @@ def datos_portal_socio(periodo: str, fecha_ref: str):
                  AND UPPER(TRIM(COALESCE(v.estado_pago, ''))) NOT IN
                      ('COTIZACION', 'CANCELADO', 'CANCELADA', 'CANCELLED', 'CANCEL', 'ANULADO', 'ANULADA')
                ORDER BY v.fecha_hora, v.id, vd.id""",
-            (credito["paciente_id"], tec["id"])
+            (credito["paciente_id"], credito["sucursal_id"])
         )
     return desde, hasta, pendientes, creditos
-
 
 @app.get("/login", response_class=HTMLResponse)
 async def login_page(request: Request):
@@ -1163,20 +1214,23 @@ async def credito_tecolotes(request: Request, periodo: str = "historico", fecha:
     if not user:
         return RedirectResponse("/login", status_code=303)
     tec = sucursal_tecolotes()
-    if not tec:
-        raise HTTPException(status_code=404, detail="No se encontró la sucursal Tecolotes.")
     fecha = fecha or today_str()
     desde, hasta = calcular_periodo(periodo, fecha)
-    sincronizar_creditos_milab()
+    sincronizar_pagos_socio()
     creditos = db.fetchall(
         """SELECT p.id AS paciente_id, p.folio, p.nombre_completo AS paciente,
-                  p.fecha_registro, c.costo_total, c.monto_pagado, c.estatus, c.fecha_pago
+                  p.fecha_registro, p.sucursal_id, s.nombre AS sucursal,
+                  COALESCE(ps.costo_total, 0) AS costo_total,
+                  COALESCE(ps.monto_pagado, 0) AS monto_pagado,
+                  COALESCE(ps.estatus, 'PENDIENTE') AS estatus, ps.fecha_pago
            FROM pacientes p
-           JOIN creditos_milab c ON c.paciente_id=p.id
-           WHERE p.sucursal_id=? AND date(p.fecha_registro) BETWEEN ? AND ?
+           LEFT JOIN sucursales s ON s.id=p.sucursal_id
+           LEFT JOIN portal_socio_pagos ps ON ps.paciente_id=p.id
+           WHERE date(p.fecha_registro) BETWEEN ? AND ?
            ORDER BY p.fecha_registro, p.id""",
-        (tec["id"], desde, hasta)
+        (desde, hasta)
     )
+    creditos = [dict(c) for c in creditos]
     total_gastos = sum(float(r["costo_total"] or 0) for r in creditos)
     total_pagado = sum(float(r["monto_pagado"] or 0) for r in creditos)
     total_pendiente = max(0, total_gastos - total_pagado)
@@ -1184,15 +1238,14 @@ async def credito_tecolotes(request: Request, periodo: str = "historico", fecha:
         credito["estudios"] = db.fetchall(
             """SELECT v.fecha_hora, v.folio AS folio_venta, vd.clave,
                       vd.nombre, vd.cantidad, vd.costo_unitario,
-                      (vd.cantidad * vd.costo_unitario) AS costo_linea
-               FROM ventas v
-               JOIN venta_detalles vd ON vd.venta_id=v.id
+                      (vd.cantidad * COALESCE(vd.costo_unitario, 0)) AS costo_linea
+               FROM ventas v JOIN venta_detalles vd ON vd.venta_id=v.id
                WHERE v.paciente_id=? AND v.sucursal_id=?
                  AND COALESCE(v.activo, 0)=1
                  AND UPPER(TRIM(COALESCE(v.estado_pago, ''))) NOT IN
                      ('COTIZACION', 'CANCELADO', 'CANCELADA', 'CANCELLED', 'CANCEL', 'ANULADO', 'ANULADA')
                ORDER BY v.fecha_hora, v.id, vd.id""",
-            (credito["paciente_id"], tec["id"])
+            (credito["paciente_id"], credito["sucursal_id"])
         )
     lotes = db.fetchall(
         """SELECT l.id, l.desde, l.hasta, l.total, l.confirmado_en,
@@ -1206,11 +1259,11 @@ async def credito_tecolotes(request: Request, periodo: str = "historico", fecha:
     return templates.TemplateResponse(request, "credito_tecolotes.html", {
         "user": user, "flashes": get_flashes(request), "periodo": periodo,
         "fecha": fecha, "desde": desde, "hasta": hasta, "creditos": creditos,
+        "tec_id": tec["id"] if tec else None,
         "total_gastos": total_gastos, "total_pagado": total_pagado,
         "total_pendiente": total_pendiente, "lotes": lotes,
         "portal_url": portal_url, "portal_activo": portal_activo,
     })
-
 
 @app.post("/credito-tecolotes/portal-socio/generar")
 async def generar_portal_socio_credito(request: Request):
@@ -1243,6 +1296,40 @@ async def revocar_portal_socio_credito(request: Request):
     db.execute("UPDATE portal_socio_tokens SET activo=0 WHERE id=1")
     flash(request, "El enlace del socio fue desactivado.")
     return RedirectResponse("/credito-tecolotes", status_code=303)
+
+
+@app.post("/credito-tecolotes/pagos/estatus")
+async def portal_socio_pago_estatus(
+    request: Request, paciente_id: int = Form(...), estatus: str = Form(...),
+    periodo: str = Form("historico"), fecha: str = Form("")
+):
+    user = get_user(request)
+    if not user:
+        return RedirectResponse("/login", status_code=303)
+    if user["rol"] != "Administrador":
+        raise HTTPException(status_code=403, detail="Solo el administrador puede actualizar estos pagos.")
+    if estatus not in ("PAGADO", "PENDIENTE"):
+        raise HTTPException(status_code=400, detail="Estatus no válido.")
+    sincronizar_pagos_socio()
+    registro = db.fetchone(
+        """SELECT costo_total, monto_pagado, estatus
+           FROM portal_socio_pagos WHERE paciente_id=?""",
+        (paciente_id,)
+    )
+    if not registro:
+        flash(request, "No se encontró el registro del paciente.", "danger")
+    elif registro["estatus"] != estatus:
+        costo = float(registro["costo_total"] or 0)
+        monto = costo if estatus == "PAGADO" else 0
+        db.execute(
+            """UPDATE portal_socio_pagos
+               SET monto_pagado=?, estatus=?, fecha_pago=?, updated_at=?
+               WHERE paciente_id=?""",
+            (monto, estatus, now_iso() if estatus == "PAGADO" else None, now_iso(), paciente_id)
+        )
+        flash(request, f"Pago actualizado a {estatus}.")
+    from urllib.parse import urlencode
+    return RedirectResponse("/credito-tecolotes?" + urlencode({"periodo": periodo, "fecha": fecha}), status_code=303)
 
 
 @app.post("/credito-tecolotes/estatus")
