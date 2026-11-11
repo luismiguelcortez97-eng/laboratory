@@ -3,6 +3,8 @@
 
 import os
 import json
+import hashlib
+import secrets
 from pathlib import Path
 from datetime import date, datetime, timedelta
 
@@ -84,6 +86,48 @@ db.execute("""CREATE TABLE IF NOT EXISTS cierres_diarios (
     PRIMARY KEY (sucursal_id, fecha)
 )""")
 
+# Control independiente de gastos MILAB por paciente y confirmaciones semanales.
+db.execute("""CREATE TABLE IF NOT EXISTS creditos_milab (
+    paciente_id INTEGER PRIMARY KEY,
+    costo_total REAL NOT NULL DEFAULT 0,
+    monto_pagado REAL NOT NULL DEFAULT 0,
+    estatus TEXT NOT NULL DEFAULT 'PENDIENTE',
+    fecha_pago TEXT,
+    updated_at TEXT NOT NULL
+)""")
+db.execute("""CREATE TABLE IF NOT EXISTS creditos_milab_lotes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    desde TEXT NOT NULL,
+    hasta TEXT NOT NULL,
+    total REAL NOT NULL DEFAULT 0,
+    confirmado_por INTEGER,
+    confirmado_en TEXT NOT NULL
+)""")
+db.execute("""CREATE TABLE IF NOT EXISTS creditos_milab_lote_detalles (
+    lote_id INTEGER NOT NULL,
+    paciente_id INTEGER NOT NULL,
+    monto REAL NOT NULL DEFAULT 0,
+    PRIMARY KEY (lote_id, paciente_id)
+)""")
+db.execute("""CREATE TABLE IF NOT EXISTS creditos_milab_movimientos (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    paciente_id INTEGER NOT NULL,
+    monto REAL NOT NULL DEFAULT 0,
+    estatus TEXT NOT NULL,
+    lote_id INTEGER,
+    usuario_id INTEGER,
+    fecha_hora TEXT NOT NULL
+)""")
+db.execute("""CREATE TABLE IF NOT EXISTS portal_socio_tokens (
+    id INTEGER PRIMARY KEY,
+    token_hash TEXT NOT NULL,
+    activo INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL,
+    created_by INTEGER
+)""")
+db.execute("CREATE INDEX IF NOT EXISTS idx_creditos_milab_estado ON creditos_milab(estatus)")
+db.execute("CREATE INDEX IF NOT EXISTS idx_creditos_milab_mov_paciente ON creditos_milab_movimientos(paciente_id)")
+
 # Añadir la columna una sola vez. Solo en esa primera migración se recuperan
 # las ventas que ya estaban confirmadas en cierres históricos.
 try:
@@ -135,6 +179,127 @@ def flash(request, msg, cat="success"):
 
 def get_flashes(request):
     return request.session.pop("flashes", [])
+
+def calcular_periodo(periodo: str, fecha_ref: str = ""):
+    """Devuelve el intervalo inclusivo para filtros diario, semanal, mensual o histórico."""
+    try:
+        referencia = date.fromisoformat(fecha_ref) if fecha_ref else ahora_local().date()
+    except (TypeError, ValueError):
+        referencia = ahora_local().date()
+    modo = (periodo or "diario").strip().lower()
+    if modo in ("historico", "histórico", "todo"):
+        return "0001-01-01", referencia.isoformat()
+    if modo == "semanal":
+        inicio = referencia - timedelta(days=referencia.weekday())
+        fin = inicio + timedelta(days=6)
+    elif modo == "mensual":
+        inicio = referencia.replace(day=1)
+        siguiente = (inicio.replace(day=28) + timedelta(days=4)).replace(day=1)
+        fin = siguiente - timedelta(days=1)
+    else:
+        inicio = fin = referencia
+    return inicio.isoformat(), fin.isoformat()
+
+
+def sucursal_tecolotes():
+    return db.fetchone(
+        "SELECT id, nombre FROM sucursales WHERE codigo='TC' OR LOWER(nombre) LIKE '%tecolotes%' ORDER BY CASE WHEN codigo='TC' THEN 0 ELSE 1 END LIMIT 1"
+    )
+
+
+def sincronizar_creditos_milab():
+    """Reconstruye el costo histórico por paciente sin borrar pagos ya registrados."""
+    suc = sucursal_tecolotes()
+    if not suc:
+        return
+    pacientes = db.fetchall(
+        """SELECT p.id AS paciente_id,
+                  COALESCE(SUM(vd.cantidad * vd.costo_unitario), 0) AS costo_total
+           FROM pacientes p
+           LEFT JOIN ventas v ON v.paciente_id=p.id
+             AND v.sucursal_id=p.sucursal_id
+             AND COALESCE(v.activo, 0)=1
+             AND UPPER(TRIM(COALESCE(v.estado_pago, ''))) NOT IN
+                 ('COTIZACION', 'CANCELADO', 'CANCELADA', 'CANCELLED', 'CANCEL', 'ANULADO', 'ANULADA')
+           LEFT JOIN venta_detalles vd ON vd.venta_id=v.id
+           WHERE p.sucursal_id=?
+           GROUP BY p.id""",
+        (suc["id"],)
+    )
+    for fila in pacientes:
+        paciente_id = int(fila["paciente_id"])
+        costo = round(float(fila["costo_total"] or 0), 2)
+        existente = db.fetchone(
+            "SELECT costo_total, monto_pagado, estatus FROM creditos_milab WHERE paciente_id=?",
+            (paciente_id,)
+        )
+        if not existente:
+            estado = "PAGADO" if costo <= 0 else "PENDIENTE"
+            db.execute(
+                """INSERT INTO creditos_milab
+                   (paciente_id, costo_total, monto_pagado, estatus, fecha_pago, updated_at)
+                   VALUES (?, ?, 0, ?, NULL, ?)""",
+                (paciente_id, costo, estado, now_iso())
+            )
+        else:
+            costo_anterior = round(float(existente["costo_total"] or 0), 2)
+            pagado = round(float(existente["monto_pagado"] or 0), 2)
+            if costo > costo_anterior + 0.009:
+                db.execute(
+                    """UPDATE creditos_milab
+                       SET costo_total=?, monto_pagado=0, estatus=?, fecha_pago=NULL, updated_at=?
+                       WHERE paciente_id=?""",
+                    (costo, "PENDIENTE" if costo > 0 else "PAGADO", now_iso(), paciente_id)
+                )
+            elif abs(costo - costo_anterior) > 0.009:
+                nuevo_pagado = min(pagado, costo)
+                nuevo_estado = "PAGADO" if costo <= 0 or nuevo_pagado >= costo - 0.009 else "PENDIENTE"
+                db.execute(
+                    """UPDATE creditos_milab
+                       SET costo_total=?, monto_pagado=?, estatus=?, updated_at=?
+                       WHERE paciente_id=?""",
+                    (costo, nuevo_pagado, nuevo_estado, now_iso(), paciente_id)
+                )
+
+
+def obtener_pendientes_confirmacion(sucursal_id: int, desde: str, hasta: str):
+    return db.fetchall(
+        """SELECT v.id AS venta_id, v.folio, v.fecha_hora, p.id AS paciente_id,
+                  p.folio AS folio_paciente, p.nombre_completo AS paciente,
+                  (SELECT GROUP_CONCAT(vd.nombre, ', ') FROM venta_detalles vd WHERE vd.venta_id=v.id) AS estudios,
+                  v.total, v.estado_pago
+           FROM ventas v
+           JOIN pacientes p ON p.id=v.paciente_id
+           WHERE v.sucursal_id=? AND date(v.fecha_hora) BETWEEN ? AND ?
+             AND COALESCE(v.activo, 0)=1 AND COALESCE(v.confirmado, 0)=0
+             AND UPPER(TRIM(COALESCE(v.estado_pago, ''))) NOT IN
+                 ('COTIZACION', 'CANCELADO', 'CANCELADA', 'CANCELLED', 'CANCEL', 'ANULADO', 'ANULADA')
+           ORDER BY v.fecha_hora, v.id""",
+        (sucursal_id, desde, hasta)
+    )
+
+
+def datos_portal_socio(periodo: str, fecha_ref: str):
+    desde, hasta = calcular_periodo(periodo, fecha_ref)
+    sucursales = db.fetchall("SELECT id, nombre FROM sucursales WHERE activa=1 ORDER BY id")
+    pendientes = []
+    for suc in sucursales:
+        filas = obtener_pendientes_confirmacion(suc["id"], desde, hasta)
+        pendientes.extend([dict(f, sucursal=suc["nombre"]) for f in filas])
+    sincronizar_creditos_milab()
+    tec = sucursal_tecolotes()
+    creditos = []
+    if tec:
+        creditos = db.fetchall(
+            """SELECT p.id AS paciente_id, p.folio, p.nombre_completo AS paciente,
+                      p.fecha_registro, c.costo_total, c.monto_pagado, c.estatus, c.fecha_pago
+               FROM pacientes p
+               JOIN creditos_milab c ON c.paciente_id=p.id
+               WHERE p.sucursal_id=? AND date(p.fecha_registro) BETWEEN ? AND ?
+               ORDER BY p.fecha_registro, p.id""",
+            (tec["id"], desde, hasta)
+        )
+    return desde, hasta, pendientes, creditos
 
 
 @app.get("/login", response_class=HTMLResponse)
@@ -852,13 +1017,274 @@ async def empleados_toggle(request: Request, empleado_id: int = Form(...)):
     return RedirectResponse("/empleados", status_code=303)
 
 @app.get("/reportes", response_class=HTMLResponse)
-async def reportes_page(request: Request):
+async def reportes_page(request: Request, sucursal_id: int = 0, periodo: str = "diario", fecha: str = ""):
     user = get_user(request)
     if not user:
         return RedirectResponse("/login", status_code=303)
-    return templates.TemplateResponse(request, "reportes.html", {"user": user, "flashes": get_flashes(request),
-        "sucursales": db.fetchall("SELECT * FROM sucursales WHERE activa=1"), "resultado": None,
+    sucursales = db.fetchall("SELECT * FROM sucursales WHERE activa=1")
+    if not sucursal_id and sucursales:
+        sucursal_id = int(sucursales[0]["id"])
+    fecha = fecha or today_str()
+    desde, hasta = calcular_periodo(periodo, fecha)
+    pendientes = obtener_pendientes_confirmacion(sucursal_id, desde, hasta) if sucursal_id else []
+    token_activo = db.fetchone("SELECT activo FROM portal_socio_tokens WHERE id=1")
+    url_generada = request.session.pop("portal_socio_url_once", None)
+    return templates.TemplateResponse(request, "reportes.html", {
+        "user": user, "flashes": get_flashes(request), "sucursales": sucursales,
+        "resultado": None, "pendientes_confirmacion": pendientes,
+        "sel_sucursal": sucursal_id, "periodo": periodo, "fecha": fecha,
+        "desde_pendientes": desde, "hasta_pendientes": hasta,
+        "portal_activo": bool(token_activo and token_activo["activo"]),
+        "portal_url_generada": url_generada,
     })
+
+
+@app.post("/reportes/confirmar-paciente")
+async def reportes_confirmar_paciente(
+    request: Request, venta_id: int = Form(...), sucursal_id: int = Form(...),
+    periodo: str = Form("diario"), fecha: str = Form("")
+):
+    user = get_user(request)
+    if not user:
+        return RedirectResponse("/login", status_code=303)
+    venta = db.fetchone(
+        """SELECT id, estado_pago, activo, confirmado FROM ventas
+           WHERE id=? AND sucursal_id=?""", (venta_id, sucursal_id)
+    )
+    if not venta or not venta["activo"]:
+        flash(request, "No se encontró una operación activa para confirmar.", "danger")
+    elif (venta["estado_pago"] or "").upper() in ("COTIZACION", "CANCELADO", "CANCELADA", "CANCELLED", "CANCEL", "ANULADO", "ANULADA"):
+        flash(request, "Esta operación no se puede confirmar.", "danger")
+    elif venta["confirmado"]:
+        flash(request, "La operación ya estaba confirmada.")
+    else:
+        db.execute("UPDATE ventas SET confirmado=1, updated_at=? WHERE id=? AND sucursal_id=?",
+                   (now_iso(), venta_id, sucursal_id))
+        flash(request, "Paciente confirmado para los reportes.")
+    from urllib.parse import urlencode
+    return RedirectResponse("/reportes?" + urlencode({"sucursal_id": sucursal_id, "periodo": periodo, "fecha": fecha}), status_code=303)
+
+
+@app.post("/reportes/confirmar-pendientes")
+async def reportes_confirmar_pendientes(
+    request: Request, sucursal_id: int = Form(...), periodo: str = Form("diario"),
+    fecha: str = Form("")
+):
+    user = get_user(request)
+    if not user:
+        return RedirectResponse("/login", status_code=303)
+    desde, hasta = calcular_periodo(periodo, fecha)
+    pendientes = obtener_pendientes_confirmacion(sucursal_id, desde, hasta)
+    for fila in pendientes:
+        db.execute(
+            "UPDATE ventas SET confirmado=1, updated_at=? WHERE id=? AND sucursal_id=? AND COALESCE(activo,0)=1 AND COALESCE(confirmado,0)=0",
+            (now_iso(), fila["venta_id"], sucursal_id)
+        )
+    flash(request, f"Se confirmaron {len(pendientes)} registros de pacientes.")
+    from urllib.parse import urlencode
+    return RedirectResponse("/reportes?" + urlencode({"sucursal_id": sucursal_id, "periodo": periodo, "fecha": fecha}), status_code=303)
+
+
+@app.post("/reportes/portal-socio/generar")
+async def generar_portal_socio(request: Request):
+    user = get_user(request)
+    if not user:
+        return RedirectResponse("/login", status_code=303)
+    if user["rol"] != "Administrador":
+        raise HTTPException(status_code=403, detail="Solo el administrador puede generar el enlace del socio.")
+    token = secrets.token_urlsafe(36)
+    token_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()
+    db.execute(
+        """INSERT INTO portal_socio_tokens (id, token_hash, activo, created_at, created_by)
+           VALUES (1, ?, 1, ?, ?)
+           ON CONFLICT(id) DO UPDATE SET token_hash=excluded.token_hash,
+             activo=1, created_at=excluded.created_at, created_by=excluded.created_by""",
+        (token_hash, now_iso(), user["id"])
+    )
+    request.session["portal_socio_url_once"] = str(request.base_url).rstrip("/") + "/socio/" + token
+    flash(request, "Enlace privado generado. Cópialo y compártelo con tu socio; al generar otro, el anterior deja de funcionar.")
+    return RedirectResponse("/reportes", status_code=303)
+
+
+@app.post("/reportes/portal-socio/revocar")
+async def revocar_portal_socio(request: Request):
+    user = get_user(request)
+    if not user:
+        return RedirectResponse("/login", status_code=303)
+    if user["rol"] != "Administrador":
+        raise HTTPException(status_code=403, detail="Solo el administrador puede revocar el enlace del socio.")
+    db.execute("UPDATE portal_socio_tokens SET activo=0 WHERE id=1")
+    flash(request, "El enlace del socio fue desactivado.")
+    return RedirectResponse("/reportes", status_code=303)
+
+
+@app.get("/socio/{token}", response_class=HTMLResponse)
+async def portal_socio(request: Request, token: str, periodo: str = "historico", fecha: str = ""):
+    token_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()
+    valido = db.fetchone(
+        "SELECT id FROM portal_socio_tokens WHERE id=1 AND token_hash=? AND activo=1",
+        (token_hash,)
+    )
+    if not valido:
+        raise HTTPException(status_code=404, detail="Enlace no disponible.")
+    fecha = fecha or today_str()
+    desde, hasta, pendientes, creditos = datos_portal_socio(periodo, fecha)
+    response = templates.TemplateResponse(request, "portal_socio.html", {
+        "periodo": periodo, "fecha": fecha, "desde": desde, "hasta": hasta,
+        "pendientes": pendientes, "creditos": creditos,
+    })
+    response.headers["Cache-Control"] = "no-store, private"
+    response.headers["X-Robots-Tag"] = "noindex, nofollow, noarchive"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    return response
+
+
+@app.get("/credito-tecolotes", response_class=HTMLResponse)
+async def credito_tecolotes(request: Request, periodo: str = "historico", fecha: str = ""):
+    user = get_user(request)
+    if not user:
+        return RedirectResponse("/login", status_code=303)
+    tec = sucursal_tecolotes()
+    if not tec:
+        raise HTTPException(status_code=404, detail="No se encontró la sucursal Tecolotes.")
+    fecha = fecha or today_str()
+    desde, hasta = calcular_periodo(periodo, fecha)
+    sincronizar_creditos_milab()
+    creditos = db.fetchall(
+        """SELECT p.id AS paciente_id, p.folio, p.nombre_completo AS paciente,
+                  p.fecha_registro, c.costo_total, c.monto_pagado, c.estatus, c.fecha_pago
+           FROM pacientes p
+           JOIN creditos_milab c ON c.paciente_id=p.id
+           WHERE p.sucursal_id=? AND date(p.fecha_registro) BETWEEN ? AND ?
+           ORDER BY p.fecha_registro, p.id""",
+        (tec["id"], desde, hasta)
+    )
+    total_gastos = sum(float(r["costo_total"] or 0) for r in creditos)
+    total_pagado = sum(float(r["monto_pagado"] or 0) for r in creditos)
+    total_pendiente = max(0, total_gastos - total_pagado)
+    lotes = db.fetchall(
+        """SELECT l.id, l.desde, l.hasta, l.total, l.confirmado_en,
+                  COUNT(d.paciente_id) AS pacientes
+           FROM creditos_milab_lotes l
+           LEFT JOIN creditos_milab_lote_detalles d ON d.lote_id=l.id
+           GROUP BY l.id, l.desde, l.hasta, l.total, l.confirmado_en
+           ORDER BY l.confirmado_en DESC LIMIT 30"""
+    )
+    return templates.TemplateResponse(request, "credito_tecolotes.html", {
+        "user": user, "flashes": get_flashes(request), "periodo": periodo,
+        "fecha": fecha, "desde": desde, "hasta": hasta, "creditos": creditos,
+        "total_gastos": total_gastos, "total_pagado": total_pagado,
+        "total_pendiente": total_pendiente, "lotes": lotes,
+    })
+
+
+@app.post("/credito-tecolotes/estatus")
+async def credito_tecolotes_estatus(
+    request: Request, paciente_id: int = Form(...), estatus: str = Form(...),
+    periodo: str = Form("historico"), fecha: str = Form("")
+):
+    user = get_user(request)
+    if not user:
+        return RedirectResponse("/login", status_code=303)
+    if estatus not in ("PAGADO", "PENDIENTE"):
+        raise HTTPException(status_code=400, detail="Estatus no válido.")
+    tec = sucursal_tecolotes()
+    registro = db.fetchone(
+        """SELECT c.costo_total, c.monto_pagado, c.estatus
+           FROM creditos_milab c JOIN pacientes p ON p.id=c.paciente_id
+           WHERE c.paciente_id=? AND p.sucursal_id=?""",
+        (paciente_id, tec["id"] if tec else -1)
+    )
+    if not registro:
+        flash(request, "No se encontró el registro de crédito del paciente.", "danger")
+    elif registro["estatus"] != estatus:
+        costo = float(registro["costo_total"] or 0)
+        monto_nuevo = costo if estatus == "PAGADO" else 0
+        fecha_pago = now_iso() if estatus == "PAGADO" else None
+        db.execute(
+            """UPDATE creditos_milab
+               SET monto_pagado=?, estatus=?, fecha_pago=?, updated_at=?
+               WHERE paciente_id=?""",
+            (monto_nuevo, estatus, fecha_pago, now_iso(), paciente_id)
+        )
+        db.execute(
+            """INSERT INTO creditos_milab_movimientos
+               (paciente_id, monto, estatus, lote_id, usuario_id, fecha_hora)
+               VALUES (?, ?, ?, NULL, ?, ?)""",
+            (paciente_id, costo, estatus, user["id"], now_iso())
+        )
+        flash(request, f"Estatus actualizado a {estatus}.")
+    from urllib.parse import urlencode
+    return RedirectResponse("/credito-tecolotes?" + urlencode({"periodo": periodo, "fecha": fecha}), status_code=303)
+
+
+@app.post("/credito-tecolotes/confirmar-semana")
+async def credito_tecolotes_confirmar_semana(request: Request):
+    user = get_user(request)
+    if not user:
+        return RedirectResponse("/login", status_code=303)
+    form = await request.form()
+    periodo = str(form.get("periodo") or "semanal")
+    fecha = str(form.get("fecha") or today_str())
+    if periodo != "semanal":
+        flash(request, "Selecciona el periodo semanal para confirmar un pago por semana.", "danger")
+        return RedirectResponse("/credito-tecolotes", status_code=303)
+    desde, hasta = calcular_periodo("semanal", fecha)
+    ids = []
+    for valor in form.getlist("paciente_ids"):
+        try:
+            pid = int(valor)
+            if pid > 0 and pid not in ids:
+                ids.append(pid)
+        except (TypeError, ValueError):
+            continue
+    if not ids:
+        flash(request, "Selecciona al menos un paciente pendiente para confirmar el pago semanal.", "danger")
+        return RedirectResponse(f"/credito-tecolotes?periodo=semanal&fecha={fecha}", status_code=303)
+    tec = sucursal_tecolotes()
+    placeholders = ",".join("?" for _ in ids)
+    filas = db.fetchall(
+        f"""SELECT c.paciente_id, c.costo_total
+            FROM creditos_milab c JOIN pacientes p ON p.id=c.paciente_id
+            WHERE p.sucursal_id=? AND date(p.fecha_registro) BETWEEN ? AND ?
+              AND c.estatus='PENDIENTE' AND c.paciente_id IN ({placeholders})
+            ORDER BY p.fecha_registro, p.id""",
+        [tec["id"], desde, hasta] + ids
+    ) if tec else []
+    if not filas:
+        flash(request, "No hay pacientes seleccionados que sigan pendientes en esa semana.", "danger")
+        return RedirectResponse(f"/credito-tecolotes?periodo=semanal&fecha={fecha}", status_code=303)
+    total = sum(float(f["costo_total"] or 0) for f in filas)
+    with db.cursor() as cur:
+        cur.execute(
+            """INSERT INTO creditos_milab_lotes
+               (desde, hasta, total, confirmado_por, confirmado_en)
+               VALUES (?, ?, ?, ?, ?)""",
+            (desde, hasta, total, user["id"], now_iso())
+        )
+        lote_id = cur.lastrowid
+        for fila in filas:
+            pid = int(fila["paciente_id"])
+            monto = float(fila["costo_total"] or 0)
+            cur.execute(
+                """INSERT INTO creditos_milab_lote_detalles (lote_id, paciente_id, monto)
+                   VALUES (?, ?, ?)""",
+                (lote_id, pid, monto)
+            )
+            cur.execute(
+                """UPDATE creditos_milab
+                   SET monto_pagado=costo_total, estatus='PAGADO', fecha_pago=?, updated_at=?
+                   WHERE paciente_id=? AND estatus='PENDIENTE'""",
+                (now_iso(), now_iso(), pid)
+            )
+            cur.execute(
+                """INSERT INTO creditos_milab_movimientos
+                   (paciente_id, monto, estatus, lote_id, usuario_id, fecha_hora)
+                   VALUES (?, ?, 'PAGADO', ?, ?, ?)""",
+                (pid, monto, lote_id, user["id"], now_iso())
+            )
+    flash(request, f"Pago semanal confirmado: {len(filas)} pacientes por {format_money(total)}. Lote #{lote_id}.")
+    return RedirectResponse(f"/credito-tecolotes?periodo=semanal&fecha={fecha}", status_code=303)
 
 @app.post("/reportes/generar")
 async def reportes_generar(request: Request, sucursal_id: int = Form(...), tipo: str = Form(...),
