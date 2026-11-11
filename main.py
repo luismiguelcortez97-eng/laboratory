@@ -1377,11 +1377,13 @@ async def credito_tecolotes_confirmar_semana(request: Request):
     user = get_user(request)
     if not user:
         return RedirectResponse("/login", status_code=303)
+    if user["rol"] != "Administrador":
+        raise HTTPException(status_code=403, detail="Solo el administrador puede confirmar pagos.")
     form = await request.form()
     periodo = str(form.get("periodo") or "semanal")
     fecha = str(form.get("fecha") or today_str())
     if periodo != "semanal":
-        flash(request, "Selecciona el periodo semanal para confirmar un pago por semana.", "danger")
+        flash(request, "Selecciona el periodo semanal para confirmar pagos.", "danger")
         return RedirectResponse("/credito-tecolotes", status_code=303)
     desde, hasta = calcular_periodo("semanal", fecha)
     ids = []
@@ -1393,18 +1395,18 @@ async def credito_tecolotes_confirmar_semana(request: Request):
         except (TypeError, ValueError):
             continue
     if not ids:
-        flash(request, "Selecciona al menos un paciente pendiente para confirmar el pago semanal.", "danger")
+        flash(request, "Selecciona al menos un paciente pendiente.", "danger")
         return RedirectResponse(f"/credito-tecolotes?periodo=semanal&fecha={fecha}", status_code=303)
-    tec = sucursal_tecolotes()
+    sincronizar_pagos_socio()
     placeholders = ",".join("?" for _ in ids)
     filas = db.fetchall(
-        f"""SELECT c.paciente_id, c.costo_total
-            FROM creditos_milab c JOIN pacientes p ON p.id=c.paciente_id
-            WHERE p.sucursal_id=? AND date(p.fecha_registro) BETWEEN ? AND ?
-              AND c.estatus='PENDIENTE' AND c.paciente_id IN ({placeholders})
+        f"""SELECT ps.paciente_id, ps.costo_total
+            FROM portal_socio_pagos ps JOIN pacientes p ON p.id=ps.paciente_id
+            WHERE date(p.fecha_registro) BETWEEN ? AND ?
+              AND ps.estatus='PENDIENTE' AND ps.paciente_id IN ({placeholders})
             ORDER BY p.fecha_registro, p.id""",
-        [tec["id"], desde, hasta] + ids
-    ) if tec else []
+        [desde, hasta] + ids
+    )
     if not filas:
         flash(request, "No hay pacientes seleccionados que sigan pendientes en esa semana.", "danger")
         return RedirectResponse(f"/credito-tecolotes?periodo=semanal&fecha={fecha}", status_code=303)
@@ -1426,16 +1428,10 @@ async def credito_tecolotes_confirmar_semana(request: Request):
                 (lote_id, pid, monto)
             )
             cur.execute(
-                """UPDATE creditos_milab
+                """UPDATE portal_socio_pagos
                    SET monto_pagado=costo_total, estatus='PAGADO', fecha_pago=?, updated_at=?
                    WHERE paciente_id=? AND estatus='PENDIENTE'""",
                 (now_iso(), now_iso(), pid)
-            )
-            cur.execute(
-                """INSERT INTO creditos_milab_movimientos
-                   (paciente_id, monto, estatus, lote_id, usuario_id, fecha_hora)
-                   VALUES (?, ?, 'PAGADO', ?, ?, ?)""",
-                (pid, monto, lote_id, user["id"], now_iso())
             )
     flash(request, f"Pago semanal confirmado: {len(filas)} pacientes por {format_money(total)}. Lote #{lote_id}.")
     return RedirectResponse(f"/credito-tecolotes?periodo=semanal&fecha={fecha}", status_code=303)
