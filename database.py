@@ -80,6 +80,7 @@ class CursorCompatible:
         "pagos",
         "auditoria",
         "codigos_autorizacion",
+        "creditos_milab_lotes",
     }
 
     def __init__(self, cursor, postgres=False):

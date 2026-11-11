@@ -89,4 +89,28 @@
   </div>
 </div>
 {% endif %}
+
+<hr class="my-4">
+<div class="card card-lc p-3 mb-3">
+  <h5 style="color:#1a5276">Pendientes de confirmar</h5>
+  <form method="get" action="/reportes" class="row g-2 align-items-end mb-3">
+    <div class="col-md-4"><label class="form-label small">Sucursal</label><select name="sucursal_id" class="form-select form-select-sm">{% for s in sucursales %}<option value="{{ s.id }}" {% if s.id == sel_sucursal|default(0)|int %}selected{% endif %}>{{ s.nombre }}</option>{% endfor %}</select></div>
+    <div class="col-md-3"><label class="form-label small">Periodo</label><select name="periodo" class="form-select form-select-sm"><option value="diario" {% if periodo=='diario' %}selected{% endif %}>Diario</option><option value="semanal" {% if periodo=='semanal' %}selected{% endif %}>Semanal</option><option value="mensual" {% if periodo=='mensual' %}selected{% endif %}>Mensual</option></select></div>
+    <div class="col-md-3"><label class="form-label small">Fecha de referencia</label><input type="date" name="fecha" value="{{ fecha|default('') }}" class="form-control form-control-sm"></div><div class="col-md-2"><button class="btn btn-lc btn-sm w-100">Consultar</button></div>
+  </form>
+  <p class="small text-muted">Periodo: {{ desde_pendientes|default('') }} al {{ hasta_pendientes|default('') }}.</p>
+  <div class="table-responsive"><table class="table table-sm table-hover table-lc"><thead><tr><th>Fecha</th><th>Folio</th><th>Paciente</th><th>Estudios solicitados</th><th>Estado</th><th>Acción</th></tr></thead><tbody>
+  {% for p in pendientes_confirmacion|default([]) %}<tr><td>{{ p.fecha_hora|dt }}</td><td>{{ p.folio_paciente or p.folio }}</td><td>{{ p.paciente }}</td><td>{{ p.estudios or '—' }}</td><td>{{ p.estado_pago }}</td><td><form method="post" action="/reportes/confirmar-paciente"><input type="hidden" name="venta_id" value="{{ p.venta_id }}"><input type="hidden" name="sucursal_id" value="{{ sel_sucursal }}"><input type="hidden" name="periodo" value="{{ periodo }}"><input type="hidden" name="fecha" value="{{ fecha }}"><button class="btn btn-success btn-sm">Confirmar</button></form></td></tr>{% else %}<tr><td colspan="6" class="text-center text-muted">No hay pacientes pendientes en este periodo.</td></tr>{% endfor %}
+  </tbody></table></div>
+  {% if pendientes_confirmacion %}<form method="post" action="/reportes/confirmar-pendientes" onsubmit="return confirm('¿Confirmar todos los pendientes del periodo?');"><input type="hidden" name="sucursal_id" value="{{ sel_sucursal }}"><input type="hidden" name="periodo" value="{{ periodo }}"><input type="hidden" name="fecha" value="{{ fecha }}"><button class="btn btn-success btn-sm">Confirmar todos los pendientes del periodo</button></form>{% endif %}
+</div>
+{% if user.rol == 'Administrador' %}
+<div class="card card-lc p-3 mb-3"><h5>Portal privado para el socio</h5><p class="small text-muted">Enlace privado sin inicio de sesión, de solo lectura. Muestra pendientes de ambas sucursales y Crédito Tecolotes.</p>
+{% if portal_url_generada %}<div class="alert alert-success"><strong>Enlace privado generado:</strong><br><a href="{{ portal_url_generada }}" target="_blank" rel="noopener noreferrer">{{ portal_url_generada }}</a><button type="button" class="btn btn-outline-secondary btn-sm ms-2" onclick="navigator.clipboard.writeText({{ portal_url_generada|tojson }})">Copiar enlace</button></div>{% endif %}
+<p>Estado del enlace: {% if portal_activo %}<span class="badge bg-success">Activo</span>{% else %}<span class="badge bg-secondary">No generado / revocado</span>{% endif %}</p>
+<form method="post" action="/reportes/portal-socio/generar" class="mb-2" onsubmit="return confirm('Generar un enlace nuevo invalidará el anterior. ¿Continuar?');"><button class="btn btn-lc btn-sm">Generar / renovar enlace privado</button></form>
+{% if portal_activo %}<form method="post" action="/reportes/portal-socio/revocar" onsubmit="return confirm('¿Desactivar el enlace compartido?');"><button class="btn btn-outline-danger btn-sm">Revocar enlace</button></form>{% endif %}
+</div>
+{% endif %}
+
 {% endblock %}
