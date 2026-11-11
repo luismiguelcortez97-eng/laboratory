@@ -302,6 +302,20 @@ def datos_portal_socio(periodo: str, fecha_ref: str):
                ORDER BY p.fecha_registro, p.id""",
             (tec["id"], desde, hasta)
         )
+    for credito in creditos:
+        credito["estudios"] = db.fetchall(
+            """SELECT v.fecha_hora, v.folio AS folio_venta, vd.clave,
+                      vd.nombre, vd.cantidad, vd.costo_unitario,
+                      (vd.cantidad * vd.costo_unitario) AS costo_linea
+               FROM ventas v
+               JOIN venta_detalles vd ON vd.venta_id=v.id
+               WHERE v.paciente_id=? AND v.sucursal_id=?
+                 AND COALESCE(v.activo, 0)=1
+                 AND UPPER(TRIM(COALESCE(v.estado_pago, ''))) NOT IN
+                     ('COTIZACION', 'CANCELADO', 'CANCELADA', 'CANCELLED', 'CANCEL', 'ANULADO', 'ANULADA')
+               ORDER BY v.fecha_hora, v.id, vd.id""",
+            (credito["paciente_id"], tec["id"])
+        )
     return desde, hasta, pendientes, creditos
 
 
@@ -1165,20 +1179,69 @@ async def credito_tecolotes(request: Request, periodo: str = "historico", fecha:
     total_gastos = sum(float(r["costo_total"] or 0) for r in creditos)
     total_pagado = sum(float(r["monto_pagado"] or 0) for r in creditos)
     total_pendiente = max(0, total_gastos - total_pagado)
+    for credito in creditos:
+        credito["estudios"] = db.fetchall(
+            """SELECT v.fecha_hora, v.folio AS folio_venta, vd.clave,
+                      vd.nombre, vd.cantidad, vd.costo_unitario,
+                      (vd.cantidad * vd.costo_unitario) AS costo_linea
+               FROM ventas v
+               JOIN venta_detalles vd ON vd.venta_id=v.id
+               WHERE v.paciente_id=? AND v.sucursal_id=?
+                 AND COALESCE(v.activo, 0)=1
+                 AND UPPER(TRIM(COALESCE(v.estado_pago, ''))) NOT IN
+                     ('COTIZACION', 'CANCELADO', 'CANCELADA', 'CANCELLED', 'CANCEL', 'ANULADO', 'ANULADA')
+               ORDER BY v.fecha_hora, v.id, vd.id""",
+            (credito["paciente_id"], tec["id"])
+        )
     lotes = db.fetchall(
         """SELECT l.id, l.desde, l.hasta, l.total, l.confirmado_en,
-                  COUNT(d.paciente_id) AS pacientes
+                  (SELECT COUNT(*) FROM creditos_milab_lote_detalles d
+                   WHERE d.lote_id=l.id) AS pacientes
            FROM creditos_milab_lotes l
-           LEFT JOIN creditos_milab_lote_detalles d ON d.lote_id=l.id
-           GROUP BY l.id, l.desde, l.hasta, l.total, l.confirmado_en
            ORDER BY l.confirmado_en DESC LIMIT 30"""
     )
+    portal_url = request.session.pop("portal_socio_url_once", "")
+    portal_activo = bool(db.fetchone("SELECT id FROM portal_socio_tokens WHERE id=1 AND activo=1"))
     return templates.TemplateResponse(request, "credito_tecolotes.html", {
         "user": user, "flashes": get_flashes(request), "periodo": periodo,
         "fecha": fecha, "desde": desde, "hasta": hasta, "creditos": creditos,
         "total_gastos": total_gastos, "total_pagado": total_pagado,
         "total_pendiente": total_pendiente, "lotes": lotes,
+        "portal_url": portal_url, "portal_activo": portal_activo,
     })
+
+
+@app.post("/credito-tecolotes/portal-socio/generar")
+async def generar_portal_socio_credito(request: Request):
+    user = get_user(request)
+    if not user:
+        return RedirectResponse("/login", status_code=303)
+    if user["rol"] != "Administrador":
+        raise HTTPException(status_code=403, detail="Solo el administrador puede generar el enlace del socio.")
+    token = secrets.token_urlsafe(36)
+    token_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()
+    db.execute(
+        """INSERT INTO portal_socio_tokens (id, token_hash, activo, created_at, created_by)
+           VALUES (1, ?, 1, ?, ?)
+           ON CONFLICT(id) DO UPDATE SET token_hash=excluded.token_hash,
+             activo=1, created_at=excluded.created_at, created_by=excluded.created_by""",
+        (token_hash, now_iso(), user["id"])
+    )
+    request.session["portal_socio_url_once"] = str(request.base_url).rstrip("/") + "/socio/" + token
+    flash(request, "Enlace privado generado. Cópialo y compártelo con tu socio; el anterior dejó de funcionar.")
+    return RedirectResponse("/credito-tecolotes", status_code=303)
+
+
+@app.post("/credito-tecolotes/portal-socio/revocar")
+async def revocar_portal_socio_credito(request: Request):
+    user = get_user(request)
+    if not user:
+        return RedirectResponse("/login", status_code=303)
+    if user["rol"] != "Administrador":
+        raise HTTPException(status_code=403, detail="Solo el administrador puede revocar el enlace del socio.")
+    db.execute("UPDATE portal_socio_tokens SET activo=0 WHERE id=1")
+    flash(request, "El enlace del socio fue desactivado.")
+    return RedirectResponse("/credito-tecolotes", status_code=303)
 
 
 @app.post("/credito-tecolotes/estatus")
