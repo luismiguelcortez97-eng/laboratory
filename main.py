@@ -1177,6 +1177,7 @@ async def credito_tecolotes(request: Request, periodo: str = "historico", fecha:
            ORDER BY p.fecha_registro, p.id""",
         (tec["id"], desde, hasta)
     )
+    creditos = [dict(credito) for credito in creditos]
     total_gastos = sum(float(r["costo_total"] or 0) for r in creditos)
     total_pagado = sum(float(r["monto_pagado"] or 0) for r in creditos)
     total_pendiente = max(0, total_gastos - total_pagado)
