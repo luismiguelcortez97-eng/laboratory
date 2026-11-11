@@ -116,6 +116,7 @@
       <li class="nav-item"><a class="nav-link {% if '/costos' in request.url.path %}active{% endif %}" href="/costos"><i class="bi bi-cash-stack"></i> Costos</a></li>
       {% if user and user.rol == "Administrador" %}<li class="nav-item"><a class="nav-link {% if '/empleados' in request.url.path %}active{% endif %}" href="/empleados"><i class="bi bi-people"></i> Empleados</a></li>{% endif %}
       <li class="nav-item"><a class="nav-link {% if '/reportes' in request.url.path %}active{% endif %}" href="/reportes"><i class="bi bi-file-earmark-bar-graph"></i> Reportes</a></li>
+      <li class="nav-item"><a class="nav-link {% if '/credito-tecolotes' in request.url.path %}active{% endif %}" href="/credito-tecolotes"><i class="bi bi-wallet2"></i> Crédito Tecolotes</a></li>
       <li class="nav-item"><a class="nav-link {% if '/balance' in request.url.path %}active{% endif %}" href="/balance"><i class="bi bi-pie-chart"></i> Balance</a></li>
       {% if user and user.rol == "Administrador" %}<li class="nav-item"><a class="nav-link {% if '/config' in request.url.path %}active{% endif %}" href="/config"><i class="bi bi-gear"></i> Configuración</a></li>{% endif %}
     </ul>
